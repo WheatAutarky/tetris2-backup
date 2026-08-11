@@ -1,0 +1,328 @@
+using System.Numerics;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+using Vector3 = UnityEngine.Vector3;
+using Quaternion = UnityEngine.Quaternion;
+using UnityEngine.UIElements;
+using UnityEngine.InputSystem;
+using Unity.VisualScripting;
+using UnityEngine.Rendering.RenderGraphModule;
+using UnityEditor.Rendering.Universal.ShaderGUI;
+public class GameManager : MonoBehaviour
+{
+    public GameObject[] Tetrominos;
+    public float movementFrequency = 0.8f;
+    private float passedTime = 0;
+    private float DAS = 0.1f; //NES Tetris: 0.27f ---- My Settings: 0.1f
+    private float ARR = 0.005f; //NES Tetris: 0.1f ---- My Settings: 0.005f
+    private GameObject currentTetromino;
+    private bool enableHold = true;
+
+    GameObject[] queue = new GameObject[22];
+
+    // Start is called once before the first execution of Update after the MonoBehaviour is created
+    void Start()
+    {
+        for (int i = 1; i < 6; i++) // build an initial queue
+        {
+            int index = Random.Range(0,Tetrominos.Length);
+            queue[i] = Instantiate(Tetrominos[index], new Vector3(12,22 - i*4,0) , Quaternion.identity);
+        }
+        SpawnTetromino();
+    }
+
+    // Update is called once per frame
+    void Update()
+    {
+        passedTime += Time.deltaTime;
+        if (passedTime >= movementFrequency)
+        {
+            passedTime -= movementFrequency;
+            MoveTetromino(Vector3.down);
+        }
+        UserInput();
+    }
+
+    float leftDASTimer = 0f;
+    float leftARRTimer = 0f;
+    float rightDASTimer = 0f;
+    float rightARRTimer = 0f;
+    enum Direction { None, Left, Right }
+    Direction activeDirection = Direction.None;
+    private GameObject switchPiece;
+
+    void UserInput()
+    {
+
+        bool leftPressed = Input.GetKeyDown(KeyCode.K);
+        bool leftHeld = Input.GetKey(KeyCode.K);
+        bool rightPressed = Input.GetKeyDown(KeyCode.Semicolon);
+        bool rightHeld = Input.GetKey(KeyCode.Semicolon);
+        bool clockwisePressed = Input.GetKeyDown(KeyCode.D);
+        bool ccPressed = Input.GetKeyDown(KeyCode.S);
+        bool softdropPressed = Input.GetKeyDown(KeyCode.L);
+        bool softdropHeld = Input.GetKey(KeyCode.L);
+        bool invertPressed = Input.GetKeyDown(KeyCode.A);
+        bool harddropPressed = Input.GetKeyDown(KeyCode.Space);
+        bool holdPressed = Input.GetKeyDown(KeyCode.F);
+
+        if (leftPressed)
+        {
+            MoveTetromino(Vector3.left);
+            leftDASTimer = DAS;
+            leftARRTimer = 0f;
+            activeDirection = Direction.Left;
+        }
+
+        if (rightPressed)
+        {
+            MoveTetromino(Vector3.right);
+            rightDASTimer = DAS;
+            rightARRTimer = 0f;
+            activeDirection = Direction.Right;
+        }
+
+
+        if (!leftHeld && activeDirection == Direction.Left && rightHeld)
+        {
+            activeDirection = Direction.Right;
+        }
+        else if (!rightHeld && activeDirection == Direction.Right && leftHeld)
+        {
+            activeDirection = Direction.Left;
+        }
+        else if (!leftHeld && !rightHeld)
+        {
+            activeDirection = Direction.None;
+        }
+
+        if (leftHeld)
+            leftDASTimer -= Time.deltaTime;
+
+        if (rightHeld)
+            rightDASTimer -= Time.deltaTime;
+
+        int moves = 0;
+
+        if (activeDirection == Direction.Left && leftHeld)
+        {
+            if (leftDASTimer <= 0f)
+            {
+                leftARRTimer -= Time.deltaTime;
+
+                while (leftARRTimer <= 0f && moves < 10)
+                {
+                    MoveTetromino(Vector3.left);
+                    leftARRTimer += ARR;
+                    moves++;
+                }
+            }
+        }
+        else if (activeDirection == Direction.Right && rightHeld)
+        {
+            if (rightDASTimer <= 0f)
+            {
+                rightARRTimer -= Time.deltaTime;
+
+                while (rightARRTimer <= 0f && moves < 10)
+                {
+                    MoveTetromino(Vector3.right);
+                    rightARRTimer += ARR;
+                    moves++;
+                }
+            }
+        }
+
+        int direction;
+        if(clockwisePressed || ccPressed || invertPressed)  //add with getkey for infinite rotation later
+        {
+            if (clockwisePressed) {direction = -90;}
+            else if (ccPressed) {direction = 90;}
+            else {direction = 180;}
+
+            if (!currentTetromino.name.Contains("O")) //disable rotation for O piece
+            {
+                currentTetromino.transform.Rotate(0,0,direction);
+            } 
+
+            if (!IsValidPosition())
+            {
+                currentTetromino.transform.Rotate(0,0,-direction);
+            }
+        }
+
+        if (softdropPressed)
+        {
+            passedTime = 0;
+        }
+        if (softdropHeld)
+        {
+            movementFrequency = 0.05f; //every 0.05 seconds
+        } 
+        else
+        {
+            movementFrequency = 0.8f;  //back to standard current fall speed
+        }
+
+        if (harddropPressed)
+        {
+            while (true)
+            {
+                currentTetromino.transform.position += Vector3.down; //I do not understand how this sees the instantiation in SpawnTetronimo - do more research on class fields vs local variables
+
+                if (!IsValidPosition())
+                {
+                    currentTetromino.transform.position -= Vector3.down;
+
+                    GetComponent<GridScript>().UpdateGrid(currentTetromino.transform);
+                    GetComponent<GridScript>().CheckForLines();
+                    SpawnTetromino();
+                    break;
+                }
+            }
+            enableHold = true;
+        }
+
+        if (holdPressed && enableHold)
+        {
+            if (queue[21] == null) 
+            {
+                queue[21] = queue[0]; 
+                queue[21].transform.position = new Vector3(-3,17,0);
+                SpawnTetromino();
+                enableHold = false;
+            }
+
+            else
+            {
+                switchPiece = queue[0];
+                queue[0] = queue[21];
+                queue[21] = switchPiece;
+                queue[21].transform.position = new Vector3(-3,17,0);
+
+                currentTetromino = queue[0];
+
+                switch (queue[0].name)
+                {
+                    case "I(Clone)":
+                        spawnCoords = new Vector3((float)4.5, (float)20.5, 0);
+                        break;
+                    case "O(Clone)":
+                        spawnCoords = new Vector3((float)4.5, (float)21.5, 0);
+                        break;
+                    default:
+                        spawnCoords = new Vector3(4, 21, 0);
+                        break;
+
+                }
+                currentTetromino.transform.position = spawnCoords;
+                if (!IsValidPosition())
+                {
+                    Time.timeScale = 0f;
+                }
+                enableHold = false;
+            
+            }
+        }
+    }
+
+    Vector3 spawnCoords;
+    void SpawnTetromino()
+    {
+
+        int index = Random.Range(0,Tetrominos.Length);
+
+        for (int i = 1; i < 6; i++) //shift queue values
+        {
+            queue[i-1] = queue[i];
+        }
+
+        queue[5] = Instantiate(Tetrominos[index], new Vector3(12, 22, 0), Quaternion.identity);
+        
+
+
+
+
+
+
+        for (int i = 1; i<6; i++) //shift positions - has to be separate so that the queue is properly arranged before moving pieces on the screen
+        {
+            queue[i].transform.position = new Vector3(12, 22 - i*4, 0);
+        }
+        currentTetromino = queue[0];
+
+        switch (queue[0].name)
+        {
+            case "I(Clone)":
+                spawnCoords = new Vector3((float)4.5, (float)20.5, 0);
+                break;
+            case "O(Clone)":
+                spawnCoords = new Vector3((float)4.5, (float)21.5, 0);
+                break;
+            default:
+                spawnCoords = new Vector3(4, 21, 0);
+                break;
+
+        }
+        currentTetromino.transform.position = spawnCoords;
+        if (!IsValidPosition())
+        {
+            Time.timeScale = 0f; //temporary game over
+        }
+        enableHold = true;
+    }
+
+    private int piecesPlaced = 0;
+    void MoveTetromino(Vector3 direction)
+    {
+        currentTetromino.transform.position += direction;
+        if (!IsValidPosition())
+        {
+            currentTetromino.transform.position -= direction;
+            if (direction == Vector3.down)
+            {
+                GetComponent<GridScript>().UpdateGrid(currentTetromino.transform);
+                CheckForLines();
+                SpawnTetromino();
+                enableHold = true;
+                piecesPlaced += 1;
+                if(piecesPlaced == Tetrominos.Length)
+                {
+                    piecesPlaced = 0;
+                    GenerateBag();
+                }
+            }
+        }
+    }
+
+    private int[] bag = new int[7]; //magic number
+
+    public void GenerateBag() //initial bag generation needs to be sorted, and its implementation into the queue.
+    {
+        // Fill the array
+        for (int i = 0; i < bag.Length; i++)
+        {
+            bag[i] = i;
+        }
+
+        // Fisher-Yates shuffle
+        for (int i = bag.Length - 1; i > 0; i--)
+        {
+            int j = Random.Range(0, i + 1);
+            (bag[i], bag[j]) = (bag[j], bag[i]);
+        }
+    }
+    
+
+    /* Ported functions from GridScript */
+    bool IsValidPosition(){
+        return GetComponent<GridScript>().IsValidPosition(currentTetromino.transform);
+    }
+
+    void CheckForLines(){
+        GetComponent<GridScript>().CheckForLines();
+    }
+
+}
