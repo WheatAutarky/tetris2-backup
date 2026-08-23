@@ -20,16 +20,20 @@ public class GameManager : MonoBehaviour
     private GameObject currentTetromino;
     private bool enableHold = true;
 
-    GameObject[] queue = new GameObject[22];
+    List<GameObject> queue = new List<GameObject>();
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        for (int i = 1; i < 6; i++) // build an initial queue
+        GenerateBag();
+
+        /* Build an initial queue */
+        for (int i = 0; i < generatedBag.Length; i++) 
         {
-            int index = Random.Range(0,Tetrominos.Length);
-            queue[i] = Instantiate(Tetrominos[index], new Vector3(12,22 - i*4,0) , Quaternion.identity);
+            queue[i] = Instantiate(Tetrominos[generatedBag[i]], new Vector3(12,22 - i*4,0) , Quaternion.identity);
         }
+
+        /* start spawning pieces */
         SpawnTetromino();
     }
 
@@ -234,25 +238,31 @@ public class GameManager : MonoBehaviour
 
         int index = Random.Range(0,Tetrominos.Length);
 
-        for (int i = 1; i < 6; i++) //shift queue values
-        {
-            queue[i-1] = queue[i];
-        }
+        /* Shift the queue up */
+        queue.RemoveAt(0);
 
-        queue[5] = Instantiate(Tetrominos[index], new Vector3(12, 22, 0), Quaternion.identity);
-        
+        /* move in queue 5 onto the screen*/
+        queue[5].transform.position = new Vector3(12, 22, 0);
 
-
-
-
-
-
-        for (int i = 1; i<6; i++) //shift positions - has to be separate so that the queue is properly arranged before moving pieces on the screen
+        /* move queue 1-4 upwards*/
+        for (int i = 1; i<5; i++) //shift positions - has to be separate so that the queue is properly arranged before moving pieces on the screen
         {
             queue[i].transform.position = new Vector3(12, 22 - i*4, 0);
         }
         currentTetromino = queue[0];
 
+
+        /* Top up queue if there isn't two full bags ready */
+        if (queue.Count <= 14)
+        {
+            GenerateBag();
+            foreach (int i in generatedBag)
+            {
+                queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //spawn them in off camera, and move them into camera when they reach top 5 queue (add this second half)
+            }
+        } 
+
+        /* Adjust spawn positions dependent on the piece */
         switch (queue[0].name)
         {
             case "I(Clone)":
@@ -267,51 +277,51 @@ public class GameManager : MonoBehaviour
 
         }
         currentTetromino.transform.position = spawnCoords;
+
+        /* Temporary game over measure, doesn't actually end the game as you can still hard drop. */
         if (!IsValidPosition())
         {
-            Time.timeScale = 0f; //temporary game over
+            Time.timeScale = 0f;
         }
+
         enableHold = true;
     }
 
-    private int piecesPlaced = 0;
+
+    /* Moves piece upon calling in a given direction */
     void MoveTetromino(Vector3 direction)
     {
         currentTetromino.transform.position += direction;
         if (!IsValidPosition())
         {
             currentTetromino.transform.position -= direction;
+            /* If on top of the stack, triggered by gravity */
             if (direction == Vector3.down)
             {
                 GetComponent<GridScript>().UpdateGrid(currentTetromino.transform);
                 CheckForLines();
                 SpawnTetromino();
                 enableHold = true;
-                piecesPlaced += 1;
-                if(piecesPlaced == Tetrominos.Length)
-                {
-                    piecesPlaced = 0;
-                    GenerateBag();
-                }
             }
         }
     }
 
-    private int[] bag = new int[7]; //magic number
+    private int[] generatedBag = new int[7]; //magic number
 
-    public void GenerateBag() //initial bag generation needs to be sorted, and its implementation into the queue.
+/* Call this function to shuffle the bag */
+    public void GenerateBag() //initial generatedBag generation needs to be sorted, and its implementation into the queue.
     {
         // Fill the array
-        for (int i = 0; i < bag.Length; i++)
+        for (int i = 0; i < generatedBag.Length; i++)
         {
-            bag[i] = i;
+            generatedBag[i] = i;
         }
 
         // Fisher-Yates shuffle
-        for (int i = bag.Length - 1; i > 0; i--)
+        for (int i = generatedBag.Length - 1; i > 0; i--)
         {
             int j = Random.Range(0, i + 1);
-            (bag[i], bag[j]) = (bag[j], bag[i]);
+            (generatedBag[i], generatedBag[j]) = (generatedBag[j], generatedBag[i]);
         }
     }
     
