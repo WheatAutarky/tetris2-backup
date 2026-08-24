@@ -25,16 +25,62 @@ public class GameManager : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
+        /* THE CORRECT WAY - FIX BY DECOUPLING QUEUE[0] FROM CURRENT PIECE. current bug is that the first piece is immediately being removed by spawntetromino.
         GenerateBag();
-
-        /* Build an initial queue */
-        for (int i = 0; i < generatedBag.Length; i++) 
+        foreach (int i in generatedBag)
         {
-            queue.Add(Instantiate(Tetrominos[generatedBag[i]], new Vector3(12,22 - i*4,0) , Quaternion.identity));
+            queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //spawn them in off camera, and move them into camera when they reach top 5 queue (add this second half)
         }
 
-        /* start spawning pieces */
-        SpawnTetromino();
+        for (int i = 1; i <= 5; i++)
+        {
+            queue[i].transform.position = new Vector3(12, 22 - i*4, 0);
+        }
+
+        //start spawning pieces
+        SpawnTetromino(); 
+        */
+        
+        /* fuckass hack method by duplicating spawntetromino minus the removeat(0) line. get rid of asap. */
+        GenerateBag();
+
+        foreach (int i in generatedBag)
+        {
+            queue.Add(
+                Instantiate(
+                    Tetrominos[i],
+                    new Vector3(12, 40, 0),
+                    Quaternion.identity
+                )
+            );
+        }
+
+        currentTetromino = queue[0];
+
+        for (int i = 1; i <= 5; i++)
+        {
+            queue[i].transform.position =
+                new Vector3(12, 22 - i * 4, 0);
+        }
+
+        switch (queue[0].name)
+        {
+            case "I(Clone)":
+                spawnCoords = new Vector3(4.5f, 20.5f, 0);
+                break;
+
+            case "O(Clone)":
+                spawnCoords = new Vector3(4.5f, 21.5f, 0);
+                break;
+
+            default:
+                spawnCoords = new Vector3(4, 21, 0);
+                break;
+        }
+
+        currentTetromino.transform.position = spawnCoords;
+
+        enableHold = true;
     }
 
     // Update is called once per frame
@@ -160,7 +206,7 @@ public class GameManager : MonoBehaviour
 
         if (softdropPressed)
         {
-            passedTime = 0;
+            passedTime = 0;  //uncomment if it feels weird
         }
         if (softdropHeld)
         {
@@ -173,20 +219,19 @@ public class GameManager : MonoBehaviour
 
         if (harddropPressed)
         {
-            while (true)
+            while (true) //be careful not to allow any bugs that can permit pieces below the board
             {
                 currentTetromino.transform.position += Vector3.down; //I do not understand how this sees the instantiation in SpawnTetronimo - do more research on class fields vs local variables
 
                 if (!IsValidPosition())
                 {
                     currentTetromino.transform.position -= Vector3.down; //note: this is a bit of a hack, but it works. The piece is moved down one more time than it should be, so we move it back up one space to correct it.
-
-                    GetComponent<GridScript>().UpdateGrid(currentTetromino.transform);
-                    GetComponent<GridScript>().CheckForLines();
-                    SpawnTetromino();
                     break;
                 }
             }
+            GetComponent<GridScript>().UpdateGrid(currentTetromino.transform);
+            GetComponent<GridScript>().CheckForLines();
+            SpawnTetromino();
             enableHold = true;
         }
 
@@ -207,6 +252,7 @@ public class GameManager : MonoBehaviour
                 queue[0] = holdPiece;
                 holdPiece = switchPiece;
                 holdPiece.transform.position = new Vector3(-3,17,0);
+                holdPiece.transform.rotation = Quaternion.identity; //reset rotation when putting into the hold slot
 
                 currentTetromino = queue[0];
                 
@@ -240,20 +286,11 @@ public class GameManager : MonoBehaviour
     Vector3 spawnCoords;
     void SpawnTetromino()
     {
-
         /* Shift the queue up */
         queue.RemoveAt(0);
 
-        /* Visibly move the queue upwards*/
-        for (int i = 1; i <= 5; i++)
-        {
-            queue[i].transform.position = new Vector3(12, 22 - i*4, 0);
-        }
-        currentTetromino = queue[0];
-
-
         /* Top up queue if there isn't two full bags ready */
-        if (queue.Count <= 14)
+        if (queue.Count < 14)
         {
             GenerateBag();
             foreach (int i in generatedBag)
@@ -261,6 +298,14 @@ public class GameManager : MonoBehaviour
                 queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //spawn them in off camera, and move them into camera when they reach top 5 queue (add this second half)
             }
         } 
+
+        currentTetromino = queue[0];
+
+        /* Visibly move the queue upwards*/
+        for (int i = 1; i <= 5; i++)
+        {
+            queue[i].transform.position = new Vector3(12, 22 - i*4, 0);
+        }
 
         /* Adjust spawn positions dependent on the piece */
         switch (queue[0].name)
@@ -309,7 +354,7 @@ public class GameManager : MonoBehaviour
     private int[] generatedBag = new int[7]; //magic number
 
 /* Call this function to shuffle the bag */
-    public void GenerateBag() //initial generatedBag generation needs to be sorted, and its implementation into the queue.
+    public void GenerateBag()
     {
         // Fill the array
         for (int i = 0; i < generatedBag.Length; i++)
@@ -323,6 +368,11 @@ public class GameManager : MonoBehaviour
             int j = Random.Range(0, i + 1);
             (generatedBag[i], generatedBag[j]) = (generatedBag[j], generatedBag[i]);
         }
+
+        Debug.Log(
+        $"Bag: {string.Join(", ", generatedBag)} | " +
+        $"Pieces: {string.Join(", ", generatedBag.Select(i => Tetrominos[i].name))}"
+        );
     }
     
 
