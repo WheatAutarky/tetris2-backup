@@ -7,20 +7,37 @@ using Vector3 = UnityEngine.Vector3;
 using Quaternion = UnityEngine.Quaternion;
 using UnityEngine.UIElements;
 using UnityEngine.InputSystem;
-using Unity.VisualScripting;
-using UnityEngine.Rendering.RenderGraphModule;
-using UnityEditor.Rendering.Universal.ShaderGUI;
+
 public class GameManager : MonoBehaviour
 {
     public GameObject[] Tetrominos;
-    public float movementFrequency = 0.8f;
+    private float movementFrequency = 0.8f;
     private float passedTime = 0;
     private float DAS = 0.1f; //NES Tetris: 0.27f ---- My Settings: 0.1f
     private float ARR = 0.005f; //NES Tetris: 0.1f ---- My Settings: 0.005f
     private GameObject currentTetromino;
     private bool enableHold = true;
 
-    List<GameObject> queue = new List<GameObject>();
+    float leftDASTimer = 0f;
+    float leftARRTimer = 0f;
+    float rightDASTimer = 0f;
+    float rightARRTimer = 0f;
+    enum Direction { None, Left, Right }
+    Direction activeDirection = Direction.None;
+    private GameObject switchPiece;
+    private GameObject holdPiece;
+
+    private Vector3 spawnCoords;
+
+    private GridScript gridScript;
+
+    private List<GameObject> queue = new List<GameObject>();
+
+    //Use Awake to reference other scripts, as Start is called after all Awake calls are completed. This is important for referencing other scripts that may not have been initialized yet.
+    void Awake()
+    {
+        gridScript = GetComponent<GridScript>();
+    }
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
@@ -32,36 +49,23 @@ public class GameManager : MonoBehaviour
             queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //spawn them in off camera, and move them into camera when they reach top 5 queue (add this second half)
         }
 
-        for (int i = 1; i <= 5; i++)
-        {
-            queue[i].transform.position = new Vector3(12, 22 - i*4, 0);
-        }
+        UpdateQueueDisplay();
 
         //start spawning pieces
         SpawnTetromino(); 
         */
         
-        /* fuckass hack method by duplicating spawntetromino minus the removeat(0) line. get rid of asap. */
+        /* hack method by duplicating spawntetromino minus the removeat(0) line. get rid of asap. */
         GenerateBag();
 
         foreach (int i in generatedBag)
         {
-            queue.Add(
-                Instantiate(
-                    Tetrominos[i],
-                    new Vector3(12, 40, 0),
-                    Quaternion.identity
-                )
-            );
+            queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //spawn them in off camera, and move them into camera when they reach top 5 queue (add this second half)
         }
 
         currentTetromino = queue[0];
 
-        for (int i = 1; i <= 5; i++)
-        {
-            queue[i].transform.position =
-                new Vector3(12, 22 - i * 4, 0);
-        }
+        UpdateQueueDisplay();
 
         switch (queue[0].name)
         {
@@ -95,14 +99,7 @@ public class GameManager : MonoBehaviour
         UserInput();
     }
 
-    float leftDASTimer = 0f;
-    float leftARRTimer = 0f;
-    float rightDASTimer = 0f;
-    float rightARRTimer = 0f;
-    enum Direction { None, Left, Right }
-    Direction activeDirection = Direction.None;
-    private GameObject switchPiece;
-    private GameObject holdPiece;
+    
 
     void UserInput()
     {
@@ -219,9 +216,9 @@ public class GameManager : MonoBehaviour
 
         if (harddropPressed)
         {
-            while (true) //be careful not to allow any bugs that can permit pieces below the board
+            while (true) //fix with something better, this is dangerous
             {
-                currentTetromino.transform.position += Vector3.down; //I do not understand how this sees the instantiation in SpawnTetronimo - do more research on class fields vs local variables
+                currentTetromino.transform.position += Vector3.down; 
 
                 if (!IsValidPosition())
                 {
@@ -229,8 +226,8 @@ public class GameManager : MonoBehaviour
                     break;
                 }
             }
-            GetComponent<GridScript>().UpdateGrid(currentTetromino.transform);
-            GetComponent<GridScript>().CheckForLines();
+            gridScript.UpdateGrid(currentTetromino.transform);
+            gridScript.CheckForLines();
             SpawnTetromino();
             enableHold = true;
         }
@@ -242,6 +239,7 @@ public class GameManager : MonoBehaviour
             {
                 holdPiece = queue[0];
                 holdPiece.transform.position = new Vector3(-3,17,0);
+                holdPiece.transform.rotation = Quaternion.identity; //reset rotation when putting into the hold slot
                 SpawnTetromino();
                 enableHold = false;
             }
@@ -252,7 +250,7 @@ public class GameManager : MonoBehaviour
                 queue[0] = holdPiece;
                 holdPiece = switchPiece;
                 holdPiece.transform.position = new Vector3(-3,17,0);
-                holdPiece.transform.rotation = Quaternion.identity; //reset rotation when putting into the hold slot
+                holdPiece.transform.rotation = Quaternion.identity; 
 
                 currentTetromino = queue[0];
                 
@@ -283,7 +281,7 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    Vector3 spawnCoords;
+    
     void SpawnTetromino()
     {
         /* Shift the queue up */
@@ -302,10 +300,7 @@ public class GameManager : MonoBehaviour
         currentTetromino = queue[0];
 
         /* Visibly move the queue upwards*/
-        for (int i = 1; i <= 5; i++)
-        {
-            queue[i].transform.position = new Vector3(12, 22 - i*4, 0);
-        }
+        UpdateQueueDisplay();
 
         /* Adjust spawn positions dependent on the piece */
         switch (queue[0].name)
@@ -343,7 +338,7 @@ public class GameManager : MonoBehaviour
             /* If on top of the stack, triggered by gravity */
             if (direction == Vector3.down)
             {
-                GetComponent<GridScript>().UpdateGrid(currentTetromino.transform);
+                gridScript.UpdateGrid(currentTetromino.transform);
                 CheckForLines();
                 SpawnTetromino();
                 enableHold = true;
@@ -375,14 +370,21 @@ public class GameManager : MonoBehaviour
         );
     }
     
+    void UpdateQueueDisplay()
+    {
+        for (int i = 1; i <= 5; i++)
+        {
+            queue[i].transform.position = new Vector3(12, 22 - i*4, 0);
+        }
+    }
 
     /* Ported functions from GridScript */
     bool IsValidPosition(){
-        return GetComponent<GridScript>().IsValidPosition(currentTetromino.transform);
+        return gridScript.IsValidPosition(currentTetromino.transform);
     }
 
     void CheckForLines(){
-        GetComponent<GridScript>().CheckForLines();
+        gridScript.CheckForLines();
     }
 
 }
