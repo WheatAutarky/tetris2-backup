@@ -11,8 +11,8 @@ using UnityEngine.InputSystem;
 public class GameManager : MonoBehaviour
 {
     public GameObject[] Tetrominos;
-    private float movementFrequency = 0.8f;
-    private float passedTime = 0;
+    public float movementFrequency = 0.8f;
+    public float passedTime = 0;
     private float DAS = 0.1f; //NES Tetris: 0.27f ---- My Settings: 0.1f
     private float ARR = 0.005f; //NES Tetris: 0.1f ---- My Settings: 0.005f
     private GameObject currentTetromino;
@@ -31,7 +31,7 @@ public class GameManager : MonoBehaviour
 
     private GridScript gridScript;
 
-    private List<GameObject> queue = new List<GameObject>();
+    public List<GameObject> queue = new List<GameObject>();
 
     //Use Awake to reference other scripts, as Start is called after all Awake calls are completed. This is important for referencing other scripts that may not have been initialized yet.
     void Awake()
@@ -64,26 +64,8 @@ public class GameManager : MonoBehaviour
         }
 
         currentTetromino = queue[0];
-
         UpdateQueueDisplay();
-
-        switch (queue[0].name)
-        {
-            case "I(Clone)":
-                spawnCoords = new Vector3(4.5f, 20.5f, 0);
-                break;
-
-            case "O(Clone)":
-                spawnCoords = new Vector3(4.5f, 21.5f, 0);
-                break;
-
-            default:
-                spawnCoords = new Vector3(4, 21, 0);
-                break;
-        }
-
-        currentTetromino.transform.position = spawnCoords;
-
+        currentTetromino.transform.position = GetSpawnLocation(currentTetromino);
         enableHold = true;
     }
 
@@ -255,20 +237,7 @@ public class GameManager : MonoBehaviour
                 currentTetromino = queue[0];
                 
                 /* adjust spawn coordinates based on the piece, and place it on the grid */
-                switch (queue[0].name)
-                {
-                    case "I(Clone)":
-                        spawnCoords = new Vector3((float)4.5, (float)20.5, 0);
-                        break;
-                    case "O(Clone)":
-                        spawnCoords = new Vector3((float)4.5, (float)21.5, 0);
-                        break;
-                    default:
-                        spawnCoords = new Vector3(4, 21, 0);
-                        break;
-
-                }
-                currentTetromino.transform.position = spawnCoords;
+                currentTetromino.transform.position = GetSpawnLocation(currentTetromino);
 
                 /* Check for game over */
                 if (!IsValidPosition())
@@ -282,7 +251,7 @@ public class GameManager : MonoBehaviour
     }
 
     
-    void SpawnTetromino()
+    public void SpawnTetromino()
     {
         /* Shift the queue up */
         queue.RemoveAt(0);
@@ -303,20 +272,7 @@ public class GameManager : MonoBehaviour
         UpdateQueueDisplay();
 
         /* Adjust spawn positions dependent on the piece */
-        switch (queue[0].name)
-        {
-            case "I(Clone)":
-                spawnCoords = new Vector3((float)4.5, (float)20.5, 0);
-                break;
-            case "O(Clone)":
-                spawnCoords = new Vector3((float)4.5, (float)21.5, 0);
-                break;
-            default:
-                spawnCoords = new Vector3(4, 21, 0);
-                break;
-
-        }
-        currentTetromino.transform.position = spawnCoords; //finally set the position of the current tetromino to the decided spawn coordinates
+        currentTetromino.transform.position = GetSpawnLocation(currentTetromino); //finally set the position of the current tetromino to the decided spawn coordinates
 
         /* Temporary game over measure, doesn't actually end the game as you can still hard drop. */
         if (!IsValidPosition())
@@ -329,7 +285,7 @@ public class GameManager : MonoBehaviour
 
 
     /* Moves piece upon calling in a given direction */
-    void MoveTetromino(Vector3 direction)
+    public void MoveTetromino(Vector3 direction)
     {
         currentTetromino.transform.position += direction;
         if (!IsValidPosition())
@@ -376,6 +332,24 @@ public class GameManager : MonoBehaviour
         {
             queue[i].transform.position = new Vector3(12, 22 - i*4, 0);
         }
+    }
+
+    public Vector3 GetSpawnLocation(GameObject piece)
+    {
+        switch (piece.name)
+        {
+            case "I(Clone)":
+                spawnCoords = new Vector3((float)4.5, (float)20.5, 0);
+                break;
+            case "O(Clone)":
+                spawnCoords = new Vector3((float)4.5, (float)21.5, 0);
+                break;
+            default:
+                spawnCoords = new Vector3(4, 21, 0);
+                break;
+
+        }
+        return spawnCoords;
     }
 
     /* Ported functions from GridScript */
