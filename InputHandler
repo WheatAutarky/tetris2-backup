@@ -1,234 +1,31 @@
-using System.Collections.Generic;
-using UnityEngine;
-
-public class InputHandler : MonoBehaviour
+public struct InputSnapshot
 {
-    private GridScript gridScript;
-    private GameManager gameManager;
+    public bool LeftPressed, LeftHeld;
+    public bool RightPressed, RightHeld;
+    public bool ClockwisePressed, CounterClockwisePressed, InvertPressed;
+    public bool SoftDropPressed, SoftDropHeld;
+    public bool HardDropPressed;
+    public bool HoldPressed;
+}
 
-    //I think current issue is that i have two separate instances of many variables here. 
-    float leftDASTimer = 0f;
-    float leftARRTimer = 0f;
-    float rightDASTimer = 0f;
-    float rightARRTimer = 0f;
-    enum Direction { None, Left, Right }
-    Direction activeDirection = Direction.None;
-    private GameObject switchPiece;
-    private GameObject holdPiece;
-
-    private float movementFrequency;
-    private float passedTime;
-    private float DAS = 0.1f; //NES Tetris: 0.27f ---- My Settings: 0.1f
-    private float ARR = 0.005f; //NES Tetris: 0.1f ---- My Settings: 0.005f
-    private GameObject currentTetromino;
-    private bool enableHold = true;
-
-    private List<GameObject> queue;
-
-    void Awake()
+public class InputHandler
+{
+    //returns a "form sheet" of the current input state, with each listed as true or false.
+    public InputSnapshot GetSnapshot()
     {
-        gridScript = GetComponent<GridScript>();
-        gameManager = GetComponent<GameManager>();
-        queue = gameManager.queue;
-        movementFrequency = gameManager.movementFrequency;
-        passedTime = gameManager.passedTime;
-    }
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
-    {
-        
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
-    }
-
-    bool IsValidPosition()
-    {
-        return gridScript.IsValidPosition(currentTetromino.transform);
-    }
-
-    void SpawnTetromino()
-    {
-        gameManager.SpawnTetromino();
-    }
-
-    Vector3 GetSpawnLocation(GameObject piece)
-    {
-        return gameManager.GetSpawnLocation(piece);
-    }
-
-    void MoveTetromino(Vector3 direction)
-    {
-        gameManager.MoveTetromino(direction);
-    }
-
-    public void UserInput()
-    {
-
-        bool leftPressed = Input.GetKeyDown(KeyCode.K);
-        bool leftHeld = Input.GetKey(KeyCode.K);
-        bool rightPressed = Input.GetKeyDown(KeyCode.Semicolon);
-        bool rightHeld = Input.GetKey(KeyCode.Semicolon);
-        bool clockwisePressed = Input.GetKeyDown(KeyCode.D);
-        bool ccPressed = Input.GetKeyDown(KeyCode.S);
-        bool softdropPressed = Input.GetKeyDown(KeyCode.L);
-        bool softdropHeld = Input.GetKey(KeyCode.L);
-        bool invertPressed = Input.GetKeyDown(KeyCode.A);
-        bool harddropPressed = Input.GetKeyDown(KeyCode.Space);
-        bool holdPressed = Input.GetKeyDown(KeyCode.F);
-
-        if (leftPressed)
+        return new InputSnapshot
         {
-            MoveTetromino(Vector3.left);
-            leftDASTimer = DAS;
-            leftARRTimer = 0f;
-            activeDirection = Direction.Left;
-        }
-
-        if (rightPressed)
-        {
-            MoveTetromino(Vector3.right);
-            rightDASTimer = DAS;
-            rightARRTimer = 0f;
-            activeDirection = Direction.Right;
-        }
-
-
-        if (!leftHeld && activeDirection == Direction.Left && rightHeld)
-        {
-            activeDirection = Direction.Right;
-        }
-        else if (!rightHeld && activeDirection == Direction.Right && leftHeld)
-        {
-            activeDirection = Direction.Left;
-        }
-        else if (!leftHeld && !rightHeld)
-        {
-            activeDirection = Direction.None;
-        }
-
-        if (leftHeld)
-            leftDASTimer -= Time.deltaTime;
-
-        if (rightHeld)
-            rightDASTimer -= Time.deltaTime;
-
-        int moves = 0;
-
-        if (activeDirection == Direction.Left && leftHeld)
-        {
-            if (leftDASTimer <= 0f)
-            {
-                leftARRTimer -= Time.deltaTime;
-
-                while (leftARRTimer <= 0f && moves < 10)
-                {
-                    MoveTetromino(Vector3.left);
-                    leftARRTimer += ARR;
-                    moves++;
-                }
-            }
-        }
-        else if (activeDirection == Direction.Right && rightHeld)
-        {
-            if (rightDASTimer <= 0f)
-            {
-                rightARRTimer -= Time.deltaTime;
-
-                while (rightARRTimer <= 0f && moves < 10)
-                {
-                    MoveTetromino(Vector3.right);
-                    rightARRTimer += ARR;
-                    moves++;
-                }
-            }
-        }
-
-        int direction;
-        if(clockwisePressed || ccPressed || invertPressed)  //add with getkey for infinite rotation later
-        {
-            if (clockwisePressed) {direction = -90;}
-            else if (ccPressed) {direction = 90;}
-            else {direction = 180;}
-
-            if (!currentTetromino.name.Contains("O")) //disable rotation for O piece
-            {
-                currentTetromino.transform.Rotate(0,0,direction);
-            } 
-
-            if (!IsValidPosition())
-            {
-                currentTetromino.transform.Rotate(0,0,-direction);
-            }
-        }
-
-        if (softdropPressed)
-        {
-            passedTime = 0;  //uncomment if it feels weird
-        }
-        if (softdropHeld)
-        {
-            movementFrequency = 0.05f; //every 0.05 seconds
-        } 
-        else
-        {
-            movementFrequency = 0.8f;  //back to standard current fall speed
-        }
-
-        if (harddropPressed)
-        {
-            while (true) //fix with something better, this is dangerous
-            {
-                currentTetromino.transform.position += Vector3.down; 
-
-                if (!IsValidPosition())
-                {
-                    currentTetromino.transform.position -= Vector3.down; //note: this is a bit of a hack, but it works. The piece is moved down one more time than it should be, so we move it back up one space to correct it.
-                    break;
-                }
-            }
-            gridScript.UpdateGrid(currentTetromino.transform);
-            gridScript.CheckForLines();
-            SpawnTetromino();
-            enableHold = true;
-        }
-
-        /* If hold is pressed and holding is enabled */
-        if (holdPressed && enableHold)
-        {
-            if (holdPiece == null) //changed to be a separate gameobject
-            {
-                holdPiece = queue[0];
-                holdPiece.transform.position = new Vector3(-3,17,0);
-                holdPiece.transform.rotation = Quaternion.identity; //reset rotation when putting into the hold slot
-                SpawnTetromino();
-                enableHold = false;
-            }
-
-            else
-            {
-                switchPiece = queue[0];
-                queue[0] = holdPiece;
-                holdPiece = switchPiece;
-                holdPiece.transform.position = new Vector3(-3,17,0);
-                holdPiece.transform.rotation = Quaternion.identity; 
-
-                currentTetromino = queue[0];
-                
-                /* adjust spawn coordinates based on the piece, and place it on the grid */
-                currentTetromino.transform.position = GetSpawnLocation(currentTetromino);
-
-                /* Check for game over */
-                if (!IsValidPosition())
-                {
-                    Time.timeScale = 0f;
-                }
-                enableHold = false;
-            
-            }
-        }
+            LeftPressed             = Input.GetKeyDown(KeyCode.K),
+            LeftHeld                = Input.GetKey(KeyCode.K),
+            RightPressed            = Input.GetKeyDown(KeyCode.Semicolon),
+            RightHeld               = Input.GetKey(KeyCode.Semicolon),
+            ClockwisePressed        = Input.GetKeyDown(KeyCode.D),
+            CounterClockwisePressed = Input.GetKeyDown(KeyCode.S),
+            InvertPressed           = Input.GetKeyDown(KeyCode.A),
+            SoftDropPressed         = Input.GetKeyDown(KeyCode.L),
+            SoftDropHeld            = Input.GetKey(KeyCode.L),
+            HardDropPressed         = Input.GetKeyDown(KeyCode.Space),
+            HoldPressed             = Input.GetKeyDown(KeyCode.F)
+        };
     }
 }
