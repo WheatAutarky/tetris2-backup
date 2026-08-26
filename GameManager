@@ -10,6 +10,7 @@ using UnityEngine.InputSystem;
 
 public class GameManager : MonoBehaviour
 {
+    private GridScript gridScript;
     private InputHandler input = new InputHandler(); //InputHandler is not a MonoBehaviour class (attached to a gameobject as a component), so doesn't need a GetComponent call
     [SerializeField] private GameObject[] Tetrominos;
     [SerializeField] private float movementFrequency = 0.8f;
@@ -18,19 +19,15 @@ public class GameManager : MonoBehaviour
     [SerializeField] private float ARR = 0.005f; //NES Tetris: 0.1f ---- My Settings: 0.005f
     private GameObject currentTetromino;
     private bool enableHold = true;
-
     private float leftDASTimer = 0f;
     private float leftARRTimer = 0f;
     private float rightDASTimer = 0f;
     private float rightARRTimer = 0f;
     private enum Direction { None, Left, Right }
     private Direction activeDirection = Direction.None;
-
-    private Vector3 spawnCoords; //delete if the new GetSpawnLocation method works
-
-    private GridScript gridScript;
-
+    private Vector3 spawnCoords; //delete if the new GetSpawnLocation method works. Even if not, it doesn't need to be a class variable.
     private List<GameObject> queue = new List<GameObject>();
+    private int[] generatedBag = new int[7]; //magic number
 
     void Awake()
     {
@@ -260,7 +257,7 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    private int[] generatedBag = new int[7]; //magic number
+   
 
 /* Call this function to shuffle the bag */
     public void GenerateBag()
@@ -329,7 +326,8 @@ public class GameManager : MonoBehaviour
     }
 
     /* Ported functions from GridScript */
-    bool IsValidPosition(){
+    bool IsValidPosition()
+    {
         return gridScript.IsValidPosition(currentTetromino.transform);
     }
 }
