@@ -43,31 +43,15 @@ public class GameManager : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        /* THE CORRECT WAY - FIX BY DECOUPLING QUEUE[0] FROM CURRENT PIECE. current bug is that the first piece is immediately being removed by spawntetromino.
-        GenerateBag();
-        foreach (int i in generatedBag)
-        {
-            queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //spawn them in off camera, and move them into camera when they reach top 5 queue (add this second half)
-        }
-
-        UpdateQueueDisplay();
-
-        //start spawning pieces
-        SpawnTetromino(); 
-        */
-        
-        /* hack method by duplicating spawntetromino minus the removeat(0) line. get rid of asap. */
         GenerateBag();
 
-        foreach (int i in generatedBag)
-        {
-            queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //spawn them in off camera, and move them into camera when they reach top 5 queue (add this second half)
-        }
+        /* should be ok as spawntetromino generates new bags first thing, double check tho*/
+        //foreach (int i in generatedBag)
+        //{
+            //queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //spawn them in off camera, and move them into camera when they reach top 5 queue (add this second half)
+        //}
 
-        currentTetromino = queue[0];
-        UpdateQueueDisplay();
-        currentTetromino.transform.position = GetSpawnLocation(currentTetromino);
-        enableHold = true;
+        SpawnTetromino();
     }
 
     // Update is called once per frame
@@ -239,9 +223,6 @@ public class GameManager : MonoBehaviour
     
     public void SpawnTetromino()
     {
-        /* Shift the queue up */
-        queue.RemoveAt(0);
-
         /* Top up queue if there isn't two full bags ready */
         if (queue.Count < 14)
         {
@@ -282,6 +263,7 @@ public class GameManager : MonoBehaviour
             {
                 gridScript.UpdateGrid(currentTetromino.transform);
                 CheckForLines();
+                queue.RemoveAt(0); //Shift the queue up
                 SpawnTetromino();
                 enableHold = true;
             }
