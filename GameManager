@@ -10,51 +10,46 @@ using UnityEngine.InputSystem;
 
 public class GameManager : MonoBehaviour
 {
-    private InputHandler input = new InputHandler(); //unsure if it actually sees the InputsHandler script.
-    public GameObject[] Tetrominos;
-    public float movementFrequency = 0.8f;
-    public float passedTime = 0;
-    private float DAS = 0.1f; //NES Tetris: 0.27f ---- My Settings: 0.1f
-    private float ARR = 0.005f; //NES Tetris: 0.1f ---- My Settings: 0.005f
+    private InputHandler input = new InputHandler(); //InputHandler is not a MonoBehaviour class (attached to a gameobject as a component), so doesn't need a GetComponent call
+    [SerializeField] private GameObject[] Tetrominos;
+    [SerializeField] private float movementFrequency = 0.8f;
+    private float passedTime = 0;
+    [SerializeField] private float DAS = 0.1f; //NES Tetris: 0.27f ---- My Settings: 0.1f
+    [SerializeField] private float ARR = 0.005f; //NES Tetris: 0.1f ---- My Settings: 0.005f
     private GameObject currentTetromino;
     private bool enableHold = true;
 
-    float leftDASTimer = 0f;
-    float leftARRTimer = 0f;
-    float rightDASTimer = 0f;
-    float rightARRTimer = 0f;
-    enum Direction { None, Left, Right }
-    Direction activeDirection = Direction.None;
-    private GameObject switchPiece;
-    private GameObject holdPiece;
+    private float leftDASTimer = 0f;
+    private float leftARRTimer = 0f;
+    private float rightDASTimer = 0f;
+    private float rightARRTimer = 0f;
+    private enum Direction { None, Left, Right }
+    private Direction activeDirection = Direction.None;
 
-    private Vector3 spawnCoords;
+    private Vector3 spawnCoords; //delete if the new GetSpawnLocation method works
 
     private GridScript gridScript;
 
-    public List<GameObject> queue = new List<GameObject>();
+    private List<GameObject> queue = new List<GameObject>();
 
-    //Use Awake to reference other scripts, as Start is called after all Awake calls are completed. This is important for referencing other scripts that may not have been initialized yet.
     void Awake()
     {
         gridScript = GetComponent<GridScript>();
     }
 
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        GenerateBag();
+        //GenerateBag();
 
-        /* should be ok as spawntetromino generates new bags first thing, double check tho*/
-        //foreach (int i in generatedBag)
-        //{
-            //queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //spawn them in off camera, and move them into camera when they reach top 5 queue (add this second half)
-        //}
-
+        /* should be ok as spawntetromino generates new bags first thing, double check tho
+        foreach (int i in generatedBag)
+        {
+            queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //spawn them in off camera, and move them into camera when they reach top 5 queue (add this second half)
+        }
+        */
         SpawnTetromino();
     }
 
-    // Update is called once per frame
     void Update()
     {
         passedTime += Time.deltaTime;
@@ -67,10 +62,12 @@ public class GameManager : MonoBehaviour
         HandleInput(input.GetSnapshot());
     }
 
-    
 
     void HandleInput(InputSnapshot frameInput)
     {
+        GameObject switchPiece;
+        GameObject holdPiece;
+
         if (frameInput.LeftPressed)
         {
             MoveTetromino(Vector3.left);
@@ -176,14 +173,11 @@ public class GameManager : MonoBehaviour
 
                 if (!IsValidPosition())
                 {
-                    currentTetromino.transform.position -= Vector3.down; //note: this is a bit of a hack, but it works. The piece is moved down one more time than it should be, so we move it back up one space to correct it.
+                    currentTetromino.transform.position -= Vector3.down;
                     break;
                 }
             }
-            gridScript.UpdateGrid(currentTetromino.transform);
-            gridScript.CheckForLines();
-            SpawnTetromino();
-            enableHold = true;
+            LockCurrentPiece();
         }
 
         /* If hold is pressed and holding is enabled */
@@ -194,6 +188,7 @@ public class GameManager : MonoBehaviour
                 holdPiece = queue[0];
                 holdPiece.transform.position = new Vector3(-3, 17, 0);
                 holdPiece.transform.rotation = Quaternion.identity; //reset rotation when putting into the hold slot
+                queue.RemoveAt(0); //shift the queue up
                 SpawnTetromino();
                 enableHold = false;
             }
@@ -229,17 +224,16 @@ public class GameManager : MonoBehaviour
             GenerateBag();
             foreach (int i in generatedBag)
             {
-                queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //spawn them in off camera, and move them into camera when they reach top 5 queue (add this second half)
+                queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //change the magic numbers eventually
             }
         } 
 
         currentTetromino = queue[0];
 
-        /* Visibly move the queue upwards*/
         UpdateQueueDisplay();
 
         /* Adjust spawn positions dependent on the piece */
-        currentTetromino.transform.position = GetSpawnLocation(currentTetromino); //finally set the position of the current tetromino to the decided spawn coordinates
+        currentTetromino.transform.position = GetSpawnLocation(currentTetromino);
 
         /* Temporary game over measure, doesn't actually end the game as you can still hard drop. */
         if (!IsValidPosition())
@@ -261,11 +255,7 @@ public class GameManager : MonoBehaviour
             /* If on top of the stack, triggered by gravity */
             if (direction == Vector3.down)
             {
-                gridScript.UpdateGrid(currentTetromino.transform);
-                CheckForLines();
-                queue.RemoveAt(0); //Shift the queue up
-                SpawnTetromino();
-                enableHold = true;
+                LockCurrentPiece();
             }
         }
     }
@@ -302,31 +292,44 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    private Vector3 GetSpawnLocation(GameObject piece) => piece.name switch
+    {
+        "I(Clone)" => new Vector3(4.5f, 20.5f, 0),
+        "O(Clone)" => new Vector3(4.5f, 21.5f, 0),
+        _ => new Vector3(4.0f, 21.0f, 0)
+    };
+
+    /* //Above method might potentially work
     public Vector3 GetSpawnLocation(GameObject piece)
     {
         switch (piece.name)
         {
             case "I(Clone)":
-                spawnCoords = new Vector3((float)4.5, (float)20.5, 0);
+                spawnCoords = new Vector3(4.5f, 20.5f, 0);
                 break;
             case "O(Clone)":
-                spawnCoords = new Vector3((float)4.5, (float)21.5, 0);
+                spawnCoords = new Vector3(4.5f, 21.5f, 0);
                 break;
             default:
-                spawnCoords = new Vector3(4, 21, 0);
+                spawnCoords = new Vector3(4.0f, 21.0f, 0);
                 break;
 
         }
         return spawnCoords;
+    }
+    */
+
+    void LockCurrentPiece()
+    {
+        gridScript.UpdateGrid(currentTetromino.transform);
+        gridScript.CheckForLines();
+        queue.RemoveAt(0); //shift the queue up
+        SpawnTetromino();
+        enableHold = true;
     }
 
     /* Ported functions from GridScript */
     bool IsValidPosition(){
         return gridScript.IsValidPosition(currentTetromino.transform);
     }
-
-    void CheckForLines(){
-        gridScript.CheckForLines();
-    }
-
 }
