@@ -1,34 +1,66 @@
-using System.Numerics;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using Vector3 = UnityEngine.Vector3;
-using Quaternion = UnityEngine.Quaternion;
 using UnityEngine.UIElements;
 using UnityEngine.InputSystem;
 
 public class GameManager : MonoBehaviour
 {
+    #region DEFINITIONS
+
+    [Header("Imports")]
     private GridScript gridScript;
     private InputHandler input = new InputHandler(); //InputHandler is not a MonoBehaviour class (attached to a gameobject as a component), so doesn't need a GetComponent call
-    [SerializeField] private GameObject[] Tetrominos;
-    [SerializeField] private float movementFrequency = 0.8f;
-    private float passedTime = 0;
+
+    [Header("Constants")]
+
     [SerializeField] private float DAS = 0.1f; //NES Tetris: 0.27f ---- My Settings: 0.1f
     [SerializeField] private float ARR = 0.005f; //NES Tetris: 0.1f ---- My Settings: 0.005f
-    private GameObject currentTetromino;
+
+    private float lockDelay = 2f; //starts counting the timer after the next gravity trigger, so is in practice gravity + lockDelay
+    private float lockDelayTimer = 0f;
+
+    private int moveResetCount = 0;
+    private const int MOVE_RESET_LIMIT = 15;
+    private const int BOARD_WIDTH = 10;
+    private const int BAG_SIZE = 7;
+    private Vector3 NEW_PIECE_SPAWN  = new Vector3(12, 40, 0);
+    private Vector3 I_PIECE_SPAWN = new Vector3(4.5f, 20.5f, 0);
+    private Vector3 O_PIECE_SPAWN = new Vector3(4.5f, 21.5f, 0);
+    private Vector3 DEFAULT_SPAWN = new Vector3(4.0f,21f,0);
+
+    [Header("Handling Values/Timers")]
+    
+    [SerializeField] private float baseMovementFrequency = 0.8f;
+    [SerializeField] private float softDropFrequency = 0.05f;
+    private float movementFrequency;
     private bool enableHold = true;
     private float leftDASTimer = 0f;
     private float leftARRTimer = 0f;
     private float rightDASTimer = 0f;
     private float rightARRTimer = 0f;
+    private float passedTime = 0;
+    
+    private GameObject currentTetromino;
+    private GameObject currentShadowTetromino;
+    [SerializeField] private GameObject[] Tetrominos;
+    [SerializeField] private GameObject[] ShadowTetrominos;
+
     private enum Direction { None, Left, Right }
     private Direction activeDirection = Direction.None;
-    private Vector3 spawnCoords; //delete if the new GetSpawnLocation method works. Even if not, it doesn't need to be a class variable.
     private List<GameObject> queue = new List<GameObject>();
-    private int[] generatedBag = new int[7]; //magic number
+    private List<GameObject> shadowQueue = new List<GameObject>();
+    private int[] generatedBag = new int[BAG_SIZE];
+    private GameObject holdPiece;
+    private GameObject holdPieceShadow;
+    private Label scoreText;
+    public UIDocument uiDocument;
+    private int score;
+    private int level;
+    #endregion
 
+    #region RUNTIME
     void Awake()
     {
         gridScript = GetComponent<GridScript>();
@@ -36,19 +68,15 @@ public class GameManager : MonoBehaviour
 
     void Start()
     {
-        //GenerateBag();
-
-        /* should be ok as spawntetromino generates new bags first thing, double check tho
-        foreach (int i in generatedBag)
-        {
-            queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //spawn them in off camera, and move them into camera when they reach top 5 queue (add this second half)
-        }
-        */
+        scoreText = uiDocument.rootVisualElement.Q<Label>("ScoreLabel");
         SpawnTetromino();
     }
 
     void Update()
     {
+        LockDelayCheck();
+
+        /* Gravity */
         passedTime += Time.deltaTime;
         if (passedTime >= movementFrequency)
         {
@@ -57,20 +85,34 @@ public class GameManager : MonoBehaviour
         }
 
         HandleInput(input.GetSnapshot());
+        scoreText.text = "Score: " + score;
+        manageLevel();
+    }
+    #endregion
+
+    #region INPUTHANDLING
+    private void HandleInput(InputSnapshot frameInput)
+    {
+        HandleMovement(frameInput);
+        HandleRotation(frameInput);
+        HandleSoftDrop(frameInput);
+        HandleHardDrop(frameInput);
+        HandleHold(frameInput);
+        HandleShadowPiece();
     }
 
-
-    void HandleInput(InputSnapshot frameInput)
+    private void HandleMovement(InputSnapshot frameInput)
     {
-        GameObject switchPiece;
-        GameObject holdPiece;
-
         if (frameInput.LeftPressed)
         {
             MoveTetromino(Vector3.left);
             leftDASTimer = DAS;
             leftARRTimer = 0f;
             activeDirection = Direction.Left;
+            if (!CanMoveDown(currentTetromino))
+            {
+                moveResetCount++;
+            }
         }
 
         if (frameInput.RightPressed)
@@ -79,6 +121,10 @@ public class GameManager : MonoBehaviour
             rightDASTimer = DAS;
             rightARRTimer = 0f;
             activeDirection = Direction.Right;
+            if (!CanMoveDown(currentTetromino))
+            {
+                moveResetCount++;
+            }
         }
 
         if (!frameInput.LeftHeld && activeDirection == Direction.Left && frameInput.RightHeld)
@@ -108,7 +154,7 @@ public class GameManager : MonoBehaviour
             {
                 leftARRTimer -= Time.deltaTime;
 
-                while (leftARRTimer <= 0f && moves < 10)
+                while (leftARRTimer <= 0f && moves < BOARD_WIDTH)
                 {
                     MoveTetromino(Vector3.left);
                     leftARRTimer += ARR;
@@ -122,7 +168,7 @@ public class GameManager : MonoBehaviour
             {
                 rightARRTimer -= Time.deltaTime;
 
-                while (rightARRTimer <= 0f && moves < 10)
+                while (rightARRTimer <= 0f && moves < BOARD_WIDTH)
                 {
                     MoveTetromino(Vector3.right);
                     rightARRTimer += ARR;
@@ -130,7 +176,10 @@ public class GameManager : MonoBehaviour
                 }
             }
         }
+    }
 
+    private void HandleRotation(InputSnapshot frameInput)
+    {
         int direction;
         if (frameInput.ClockwisePressed || frameInput.CounterClockwisePressed || frameInput.InvertPressed) //add with getkey for infinite rotation later
         {
@@ -143,67 +192,79 @@ public class GameManager : MonoBehaviour
                 currentTetromino.transform.Rotate(0, 0, direction);
             }
 
-            if (!IsValidPosition())
+
+            if (!IsValidPosition(currentTetromino.transform))
             {
                 currentTetromino.transform.Rotate(0, 0, -direction);
             }
+            else if(!CanMoveDown(currentTetromino))
+            {
+                lockDelayTimer = 0f; //reset timer on rotation
+                moveResetCount++;
+            }
         }
+    }
 
-        if (frameInput.SoftDropPressed)
-        {
-            passedTime = 0; //uncomment if it feels weird
-        }
-        if (frameInput.SoftDropHeld)
-        {
-            movementFrequency = 0.05f; //every 0.05 seconds
-        }
-        else
-        {
-            movementFrequency = 0.8f; //back to standard current fall speed
-        }
+    private void HandleSoftDrop(InputSnapshot frameInput)
+    {
+        if (frameInput.SoftDropPressed) { passedTime = 0; }
+        movementFrequency = frameInput.SoftDropHeld ? softDropFrequency : baseMovementFrequency;
+    }
 
+    private void HandleHardDrop(InputSnapshot frameInput)
+    {
         if (frameInput.HardDropPressed)
         {
-            while (true) //fix with something better, this is dangerous
+            while (CanMoveDown(currentTetromino))
             {
                 currentTetromino.transform.position += Vector3.down;
-
-                if (!IsValidPosition())
-                {
-                    currentTetromino.transform.position -= Vector3.down;
-                    break;
-                }
             }
             LockCurrentPiece();
         }
+    }
 
-        /* If hold is pressed and holding is enabled */
+    private void HandleHold(InputSnapshot frameInput)
+    {
         if (frameInput.HoldPressed && enableHold)
         {
             if (holdPiece == null) //changed to be a separate gameobject
             {
                 holdPiece = queue[0];
+                holdPieceShadow = shadowQueue[0];
+                holdPieceShadow.transform.position = new Vector3(-50,17,0);
                 holdPiece.transform.position = new Vector3(-3, 17, 0);
                 holdPiece.transform.rotation = Quaternion.identity; //reset rotation when putting into the hold slot
                 queue.RemoveAt(0); //shift the queue up
+
+                shadowQueue.RemoveAt(0);
                 SpawnTetromino();
                 enableHold = false;
             }
             else
             {
+                GameObject switchPiece;
+                GameObject switchPieceShadow;
+
                 switchPiece = queue[0];
                 queue[0] = holdPiece;
                 holdPiece = switchPiece;
+
+                switchPieceShadow = shadowQueue[0];
+                shadowQueue[0] = holdPieceShadow;
+                holdPieceShadow = switchPieceShadow;
+
+                holdPieceShadow.transform.position = new Vector3(-50,17,0);
                 holdPiece.transform.position = new Vector3(-3, 17, 0);
                 holdPiece.transform.rotation = Quaternion.identity;
 
                 currentTetromino = queue[0];
+                currentShadowTetromino = shadowQueue[0];
 
                 /* adjust spawn coordinates based on the piece, and place it on the grid */
                 currentTetromino.transform.position = GetSpawnLocation(currentTetromino);
 
                 /* Check for game over */
-                if (!IsValidPosition())
+                if (!IsValidPosition(currentTetromino.transform))
                 {
                     Time.timeScale = 0f;
                 }
@@ -212,8 +273,20 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    void HandleShadowPiece()
+    {
+        currentShadowTetromino.transform.position = currentTetromino.transform.position;
+        currentShadowTetromino.transform.rotation = currentTetromino.transform.rotation;
+        while (CanMoveDown(currentShadowTetromino))
+        {
+            currentShadowTetromino.transform.position += Vector3.down;
+        }
+    }
+
+    #endregion
     
-    public void SpawnTetromino()
+    #region PIECEHANDLING
+    private void SpawnTetromino()
     {
         /* Top up queue if there isn't two full bags ready */
         if (queue.Count < 14)
@@ -221,11 +294,13 @@ public class GameManager : MonoBehaviour
             GenerateBag();
             foreach (int i in generatedBag)
             {
-                queue.Add(Instantiate(Tetrominos[i], new Vector3(12, 40, 0), Quaternion.identity)); //change the magic numbers eventually
+                queue.Add(Instantiate(Tetrominos[i], NEW_PIECE_SPAWN, Quaternion.identity));
+                shadowQueue.Add(Instantiate(ShadowTetrominos[i], NEW_PIECE_SPAWN, Quaternion.identity));
             }
         } 
 
         currentTetromino = queue[0];
+        currentShadowTetromino = shadowQueue[0];
 
         UpdateQueueDisplay();
 
@@ -233,7 +308,7 @@ public class GameManager : MonoBehaviour
         currentTetromino.transform.position = GetSpawnLocation(currentTetromino);
 
         /* Temporary game over measure, doesn't actually end the game as you can still hard drop. */
-        if (!IsValidPosition())
+        if (!IsValidPosition(currentTetromino.transform))
         {
             Time.timeScale = 0f;
         }
@@ -243,24 +318,45 @@ public class GameManager : MonoBehaviour
 
 
     /* Moves piece upon calling in a given direction */
-    public void MoveTetromino(Vector3 direction)
+    private void MoveTetromino(Vector3 direction)
     {
         currentTetromino.transform.position += direction;
-        if (!IsValidPosition())
+        if (!IsValidPosition(currentTetromino.transform))
         {
             currentTetromino.transform.position -= direction;
-            /* If on top of the stack, triggered by gravity */
-            if (direction == Vector3.down)
-            {
-                LockCurrentPiece();
-            }
         }
     }
 
-   
+    private bool CanMoveDown(GameObject tetromino)
+    {
+        tetromino.transform.position += Vector3.down;
+        bool canMove = IsValidPosition(tetromino.transform);
+        tetromino.transform.position -= Vector3.down;
+        return canMove;
+    }
 
-/* Call this function to shuffle the bag */
-    public void GenerateBag()
+    void LockDelayCheck()
+    {
+        if (!CanMoveDown(currentTetromino))
+        {
+            lockDelayTimer += Time.deltaTime;
+            Debug.Log("Move reset count: " + moveResetCount);
+
+            if (lockDelayTimer >= lockDelay || moveResetCount > MOVE_RESET_LIMIT)
+            {
+                LockCurrentPiece();
+                lockDelayTimer = 0f;
+                moveResetCount = 0;
+            }
+        }
+        else
+        {
+            lockDelayTimer = 0f;
+        }
+    }
+
+    /* Call this function to shuffle the bag */
+    private void GenerateBag()
     {
         // Fill the array
         for (int i = 0; i < generatedBag.Length; i++)
@@ -274,14 +370,9 @@ public class GameManager : MonoBehaviour
             int j = Random.Range(0, i + 1);
             (generatedBag[i], generatedBag[j]) = (generatedBag[j], generatedBag[i]);
         }
-
-        Debug.Log(
-        $"Bag: {string.Join(", ", generatedBag)} | " +
-        $"Pieces: {string.Join(", ", generatedBag.Select(i => Tetrominos[i].name))}"
-        );
     }
     
-    void UpdateQueueDisplay()
+    private void UpdateQueueDisplay()
     {
         for (int i = 1; i <= 5; i++)
         {
@@ -291,43 +382,44 @@ public class GameManager : MonoBehaviour
 
     private Vector3 GetSpawnLocation(GameObject piece) => piece.name switch
     {
-        "I(Clone)" => new Vector3(4.5f, 20.5f, 0),
-        "O(Clone)" => new Vector3(4.5f, 21.5f, 0),
-        _ => new Vector3(4.0f, 21.0f, 0)
+        "I(Clone)" => I_PIECE_SPAWN,
+        "O(Clone)" => O_PIECE_SPAWN,
+        _ => DEFAULT_SPAWN
     };
 
-    /* //Above method might potentially work
-    public Vector3 GetSpawnLocation(GameObject piece)
-    {
-        switch (piece.name)
-        {
-            case "I(Clone)":
-                spawnCoords = new Vector3(4.5f, 20.5f, 0);
-                break;
-            case "O(Clone)":
-                spawnCoords = new Vector3(4.5f, 21.5f, 0);
-                break;
-            default:
-                spawnCoords = new Vector3(4.0f, 21.0f, 0);
-                break;
-
-        }
-        return spawnCoords;
-    }
-    */
-
-    void LockCurrentPiece()
+    private void LockCurrentPiece()
     {
         gridScript.UpdateGrid(currentTetromino.transform);
-        gridScript.CheckForLines();
+        int linesCleared = gridScript.CheckForLines();
+
+        switch (linesCleared)
+        {
+            case 1:
+                score+=1; Debug.Log("Score: " + score); break;
+            case 2:
+                score+=3; Debug.Log("Score: " + score); break;
+            case 3:
+                score+=5; Debug.Log("Score: " + score); break;
+            case 4:
+                score+=8; Debug.Log("Score: " + score); break;
+        }
+
+        Destroy(currentShadowTetromino.gameObject);
         queue.RemoveAt(0); //shift the queue up
+        shadowQueue.RemoveAt(0);
         SpawnTetromino();
         enableHold = true;
     }
 
-    /* Ported functions from GridScript */
-    bool IsValidPosition()
+    private void manageLevel() //come back to this later
     {
-        return gridScript.IsValidPosition(currentTetromino.transform);
+        level = score / 40;
+    }
+
+    #endregion
+    /* Ported functions from GridScript */
+    private bool IsValidPosition( Transform pieceTransform)
+    {
+        return gridScript.IsValidPosition(pieceTransform.transform);
     }
 }
