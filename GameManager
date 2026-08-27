@@ -189,7 +189,9 @@ public class GameManager : MonoBehaviour
 
             if (!currentTetromino.name.Contains("O")) //disable rotation for O piece
             {
+                Vector3Int[] kicks = GetWallKickTests(currentTetromino, frameInput); // need to read the intended rotation before applying it
                 currentTetromino.transform.Rotate(0, 0, direction);
+                ApplyWallKickTests(kicks);
             }
 
 
@@ -199,9 +201,43 @@ public class GameManager : MonoBehaviour
             }
             else if(!CanMoveDown(currentTetromino))
             {
-                lockDelayTimer = 0f; //reset timer on rotation
+                lockDelayTimer = 0f; //reset timer on rotation only when resting on stack
                 moveResetCount++;
             }
+        }
+    }
+
+    private Vector3Int[] GetWallKickTests(GameObject tetromino, InputSnapshot frameInput)
+    {
+        float currentZ = Mathf.Round(tetromino.transform.eulerAngles.z);
+        currentZ = ((currentZ % 360) + 360) % 360; // normalize just in case
+        var kickList = tetromino.name == "I(Clone)" ? WallKickTables.WallKicksI : WallKickTables.WallKicksJLOSTZ;
+
+        if (currentZ == 0   && frameInput.ClockwisePressed)        return kickList[0]; // 0->R
+        if (currentZ == 270 && frameInput.CounterClockwisePressed) return kickList[1]; // R->0
+        if (currentZ == 270 && frameInput.ClockwisePressed)        return kickList[2]; // R->2
+        if (currentZ == 180 && frameInput.CounterClockwisePressed) return kickList[3]; // 2->R
+        if (currentZ == 180 && frameInput.ClockwisePressed)        return kickList[4]; // 2->L
+        if (currentZ == 90  && frameInput.CounterClockwisePressed) return kickList[5]; // L->2
+        if (currentZ == 90  && frameInput.ClockwisePressed)        return kickList[6]; // L->0
+        if (currentZ == 0   && frameInput.CounterClockwisePressed) return kickList[7]; // 0->L
+
+        return kickList[7]; // fallback (also hit by the 180°/invert case, since it's neither CW nor CCW — worth a closer look later)
+    }
+
+    private void ApplyWallKickTests(Vector3Int[] kickList)
+    {
+        Vector3 shiftCoords;
+        for (int i = 0; i < kickList.Length; i++)
+        {
+            shiftCoords = kickList[i];
+
+            currentTetromino.transform.position += shiftCoords;
+            if (IsValidPosition(currentTetromino.transform))
+            {
+                return;
+            }
+            currentTetromino.transform.position -= shiftCoords;
         }
     }
 
