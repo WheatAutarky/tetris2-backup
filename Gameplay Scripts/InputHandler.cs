@@ -1,0 +1,34 @@
+using UnityEngine;
+public struct InputSnapshot
+{
+    public bool LeftPressed, LeftHeld;
+    public bool RightPressed, RightHeld;
+    public bool ClockwisePressed, CounterClockwisePressed, InvertPressed;
+    public bool SoftDropPressed, SoftDropHeld;
+    public bool HardDropPressed;
+    public bool HoldPressed;
+    public bool PausePressed;
+}
+
+public class InputHandler
+{
+    //returns a "form sheet" of the current input state, with each listed as true or false.
+    public InputSnapshot GetSnapshot()
+    {
+        return new InputSnapshot
+        {
+            LeftPressed             = Input.GetKeyDown(KeyCode.K),
+            LeftHeld                = Input.GetKey(KeyCode.K),
+            RightPressed            = Input.GetKeyDown(KeyCode.Semicolon),
+            RightHeld               = Input.GetKey(KeyCode.Semicolon),
+            ClockwisePressed        = Input.GetKeyDown(KeyCode.D),
+            CounterClockwisePressed = Input.GetKeyDown(KeyCode.S),
+            InvertPressed           = Input.GetKeyDown(KeyCode.A),
+            SoftDropPressed         = Input.GetKeyDown(KeyCode.L),
+            SoftDropHeld            = Input.GetKey(KeyCode.L),
+            HardDropPressed         = Input.GetKeyDown(KeyCode.Space),
+            HoldPressed             = Input.GetKeyDown(KeyCode.F),
+            PausePressed            = Input.GetKeyDown(KeyCode.Escape)
+        };
+    }
+}
