@@ -25,10 +25,11 @@ public class GameManager : MonoBehaviour
     private const int MOVE_RESET_LIMIT = 15;
     private const int BOARD_WIDTH = 10;
     private const int BAG_SIZE = 7;
-    private Vector3 NEW_PIECE_SPAWN  = new Vector3(12, 40, 0);
-    private Vector3 I_PIECE_SPAWN = new Vector3(4.5f, 20.5f, 0);
-    private Vector3 O_PIECE_SPAWN = new Vector3(4.5f, 21.5f, 0);
-    private Vector3 DEFAULT_SPAWN = new Vector3(4.0f,21f,0);
+
+    private Vector3 NEW_PIECE_SPAWN  = new Vector3(12f, 40f, 0);
+    private static readonly Vector3 I_PIECE_SPAWN = new Vector3(4.5f, 20.5f, 0);
+    private static readonly Vector3 O_PIECE_SPAWN = new Vector3(4.5f, 21.5f, 0);
+    private static readonly Vector3 DEFAULT_SPAWN = new Vector3(4.0f,21f,0);
 
     [Header("Handling Values/Timers")]
     
@@ -36,10 +37,6 @@ public class GameManager : MonoBehaviour
     [SerializeField] private float softDropFrequency = 0.05f;
     private float movementFrequency;
     private bool enableHold = true;
-    private float leftDASTimer = 0f;
-    private float leftARRTimer = 0f;
-    private float rightDASTimer = 0f;
-    private float rightARRTimer = 0f;
     private float passedTime = 0;
     
     private GameObject currentTetromino;
@@ -57,6 +54,16 @@ public class GameManager : MonoBehaviour
     private Label totalLinesClearedText;
     public UIDocument uiDocument;
     private int totalLinesCleared;
+
+    private class DirectionState //can probably use this to splinter off to an own file for PieceHandler
+    {
+        public float dasTimer;
+        public float arrTimer;
+        public Vector3 MoveVector;
+    }
+
+    private DirectionState left = new DirectionState{MoveVector = Vector3.left};
+    private DirectionState right = new DirectionState{MoveVector = Vector3.right};
 
     #endregion
 
@@ -113,110 +120,106 @@ public class GameManager : MonoBehaviour
             //create a pause menu game object with menus, and freeze the pieces and game controls
         }
     }
+
     private void HandleMovement(InputSnapshot frameInput)
     {
-        if (frameInput.LeftPressed)
-        {
-            MoveTetromino(Vector3.left);
-            leftDASTimer = DAS;
-            leftARRTimer = 0f;
-            activeDirection = Direction.Left;
-            if (!CanMoveDown(currentTetromino))
-            {
-                moveResetCount++;
-            }
-        }
+        TryInitialMove(frameInput.LeftPressed, Direction.Left, left);
+        TryInitialMove(frameInput.RightPressed, Direction.Right, right);
 
-        if (frameInput.RightPressed)
-        {
-            MoveTetromino(Vector3.right);
-            rightDASTimer = DAS;
-            rightARRTimer = 0f;
-            activeDirection = Direction.Right;
-            if (!CanMoveDown(currentTetromino))
-            {
-                moveResetCount++;
-            }
-        }
+        UpdateActiveDirection(frameInput);
 
+        HandleDAS(left, frameInput.LeftHeld);
+        HandleDAS(right,frameInput.RightHeld);
+
+        if (activeDirection == Direction.Left)
+            HandleARR(left, frameInput.LeftHeld);
+
+        else if (activeDirection == Direction.Right)
+            HandleARR(right, frameInput.RightHeld);
+    }
+
+    private void TryInitialMove(bool pressed, Direction direction, DirectionState state)
+    {
+        if (!pressed)
+            return;
+        
+        MoveTetromino(state.MoveVector);
+        state.dasTimer = DAS;
+        state.arrTimer = 0f;
+        activeDirection = direction;
+
+        if (!CanMoveDown(currentTetromino))
+            moveResetCount++;
+    }
+
+    private void UpdateActiveDirection(InputSnapshot frameInput)
+    {
         if (!frameInput.LeftHeld && activeDirection == Direction.Left && frameInput.RightHeld)
-        {
             activeDirection = Direction.Right;
-        }
+    
         else if (!frameInput.RightHeld && activeDirection == Direction.Right && frameInput.LeftHeld)
-        {
             activeDirection = Direction.Left;
-        }
+        
         else if (!frameInput.LeftHeld && !frameInput.RightHeld)
-        {
             activeDirection = Direction.None;
-        }
+    }
 
-        if (frameInput.LeftHeld)
-            leftDASTimer -= Time.deltaTime;
+    private void HandleDAS(DirectionState state, bool held)
+    {
+        if (held) 
+            state.dasTimer -= Time.deltaTime;
+    }
 
-        if (frameInput.RightHeld)
-            rightDASTimer -= Time.deltaTime;
-
+    private void HandleARR (DirectionState state, bool held)
+    {
+        if (!held || state.dasTimer > 0f) 
+            return;
+        
+        state.arrTimer -= Time.deltaTime;
         int moves = 0;
 
-        if (activeDirection == Direction.Left && frameInput.LeftHeld)
+        while (state.arrTimer <= 0f && moves < BOARD_WIDTH)
         {
-            if (leftDASTimer <= 0f)
-            {
-                leftARRTimer -= Time.deltaTime;
-
-                while (leftARRTimer <= 0f && moves < BOARD_WIDTH)
-                {
-                    MoveTetromino(Vector3.left);
-                    leftARRTimer += ARR;
-                    moves++;
-                }
-            }
-        }
-        else if (activeDirection == Direction.Right && frameInput.RightHeld)
-        {
-            if (rightDASTimer <= 0f)
-            {
-                rightARRTimer -= Time.deltaTime;
-
-                while (rightARRTimer <= 0f && moves < BOARD_WIDTH)
-                {
-                    MoveTetromino(Vector3.right);
-                    rightARRTimer += ARR;
-                    moves++;
-                }
-            }
+            MoveTetromino(state.MoveVector);
+            state.arrTimer += ARR;
+            moves++;
         }
     }
 
     private void HandleRotation(InputSnapshot frameInput)
     {
         int direction;
-        if (frameInput.ClockwisePressed || frameInput.CounterClockwisePressed || frameInput.InvertPressed) //add with getkey for infinite rotation later
+        if (!frameInput.ClockwisePressed && !frameInput.CounterClockwisePressed && !frameInput.InvertPressed)
+            return;
+        
+        if (currentTetromino.name.Contains("O"))
+            return;
+
+        if (frameInput.ClockwisePressed) { direction = -90; }
+        else if (frameInput.CounterClockwisePressed) { direction = 90; }
+        else { direction = 180; }
+
+        Vector3Int[] kicks = GetWallKickTests(currentTetromino, frameInput); // need to read the intended rotation before applying it
+        currentTetromino.transform.Rotate(0, 0, direction);
+        ApplyWallKickTests(kicks);
+
+        if (!IsValidPosition(currentTetromino.transform))
         {
-            if (frameInput.ClockwisePressed) { direction = -90; }
-            else if (frameInput.CounterClockwisePressed) { direction = 90; }
-            else { direction = 180; }
-
-            if (!currentTetromino.name.Contains("O")) //disable rotation for O piece
-            {
-                Vector3Int[] kicks = GetWallKickTests(currentTetromino, frameInput); // need to read the intended rotation before applying it
-                currentTetromino.transform.Rotate(0, 0, direction);
-                ApplyWallKickTests(kicks);
-            }
-
-
-            if (!IsValidPosition(currentTetromino.transform))
-            {
-                currentTetromino.transform.Rotate(0, 0, -direction);
-            }
-            else if(!CanMoveDown(currentTetromino))
-            {
-                lockDelayTimer = 0f; //reset timer on rotation only when resting on stack
-                moveResetCount++;
-            }
+            currentTetromino.transform.Rotate(0, 0, -direction);
         }
+        else if(!CanMoveDown(currentTetromino))
+        {
+            lockDelayTimer = 0f;
+            moveResetCount++;
+        }
+    }
+
+    private enum RotationState
+    {
+        Spawn = 0,
+        Right = 1,
+        Inverted = 2,
+        Left = 3
     }
 
     private Vector3Int[] GetWallKickTests(GameObject tetromino, InputSnapshot frameInput)
@@ -246,9 +249,8 @@ public class GameManager : MonoBehaviour
 
             currentTetromino.transform.position += shiftCoords;
             if (IsValidPosition(currentTetromino.transform))
-            {
                 return;
-            }
+
             currentTetromino.transform.position -= shiftCoords;
         }
     }
@@ -261,64 +263,65 @@ public class GameManager : MonoBehaviour
 
     private void HandleHardDrop(InputSnapshot frameInput)
     {
-        if (frameInput.HardDropPressed)
+        if (!frameInput.HardDropPressed)
+            return;
+  
+        while (CanMoveDown(currentTetromino))
         {
-            while (CanMoveDown(currentTetromino))
-            {
-                currentTetromino.transform.position += Vector3.down;
-            }
-            LockCurrentPiece();
+            currentTetromino.transform.position += Vector3.down;
         }
+        LockCurrentPiece();
+        
     }
 
     private void HandleHold(InputSnapshot frameInput)
     {
-        if (frameInput.HoldPressed && enableHold)
+        if (!(frameInput.HoldPressed && enableHold))
+            return;
+
+        if (holdPiece == null) //changed to be a separate gameobject
         {
-            if (holdPiece == null) //changed to be a separate gameobject
-            {
-                holdPiece = queue[0];
-                holdPieceShadow = shadowQueue[0];
-                holdPieceShadow.transform.position = new Vector3(-50,17,0);
-                holdPiece.transform.position = new Vector3(-3, 17, 0);
-                holdPiece.transform.rotation = Quaternion.identity; //reset rotation when putting into the hold slot
-                queue.RemoveAt(0); //shift the queue up
+            holdPiece = queue[0];
+            holdPieceShadow = shadowQueue[0];
+            holdPieceShadow.transform.position = new Vector3(-50,17,0);
+            holdPiece.transform.position = new Vector3(-3, 17, 0);
+            holdPiece.transform.rotation = Quaternion.identity; //reset rotation when putting into the hold slot
+            queue.RemoveAt(0); //shift the queue up
 
-                shadowQueue.RemoveAt(0);
-                SpawnTetromino();
-                enableHold = false;
-            }
-            else
-            {
-                GameObject switchPiece;
-                GameObject switchPieceShadow;
-
-                switchPiece = queue[0];
-                queue[0] = holdPiece;
-                holdPiece = switchPiece;
-
-                switchPieceShadow = shadowQueue[0];
-                shadowQueue[0] = holdPieceShadow;
-                holdPieceShadow = switchPieceShadow;
-
-                holdPieceShadow.transform.position = new Vector3(-50,17,0);
-                holdPiece.transform.position = new Vector3(-3, 17, 0);
-                holdPiece.transform.rotation = Quaternion.identity;
-
-                currentTetromino = queue[0];
-                currentShadowTetromino = shadowQueue[0];
-
-                /* adjust spawn coordinates based on the piece, and place it on the grid */
-                currentTetromino.transform.position = GetSpawnLocation(currentTetromino);
-
-                /* Check for game over */
-                if (!IsValidPosition(currentTetromino.transform))
-                {
-                    Time.timeScale = 0f;
-                }
-                enableHold = false;
-            }
+            shadowQueue.RemoveAt(0);
+            SpawnTetromino();
+            enableHold = false;
+            return;
         }
+
+        GameObject switchPiece;
+        GameObject switchPieceShadow;
+
+        switchPiece = queue[0];
+        queue[0] = holdPiece;
+        holdPiece = switchPiece;
+
+        switchPieceShadow = shadowQueue[0];
+        shadowQueue[0] = holdPieceShadow;
+        holdPieceShadow = switchPieceShadow;
+
+        holdPieceShadow.transform.position = new Vector3(-50,17,0);
+        holdPiece.transform.position = new Vector3(-3, 17, 0);
+        holdPiece.transform.rotation = Quaternion.identity;
+
+        currentTetromino = queue[0];
+        currentShadowTetromino = shadowQueue[0];
+
+        /* adjust spawn coordinates based on the piece, and place it on the grid */
+        currentTetromino.transform.position = GetSpawnLocation(currentTetromino);
+
+        /* Check for game over */
+        if (!IsValidPosition(currentTetromino.transform))
+        {
+            Time.timeScale = 0f;
+        }
+        enableHold = false;
+
     }
 
     void HandleShadowPiece()
@@ -361,6 +364,8 @@ public class GameManager : MonoBehaviour
             Time.timeScale = 0f;
         }
 
+        lockDelayTimer = 0f;
+        moveResetCount = 0;
         enableHold = true;
     }
 
@@ -385,21 +390,18 @@ public class GameManager : MonoBehaviour
 
     void LockDelayCheck()
     {
-        if (!CanMoveDown(currentTetromino))
-        {
-            lockDelayTimer += Time.deltaTime;
-            Debug.Log("Move reset count: " + moveResetCount);
-
-            if (lockDelayTimer >= lockDelay || moveResetCount > MOVE_RESET_LIMIT)
-            {
-                LockCurrentPiece();
-                lockDelayTimer = 0f;
-                moveResetCount = 0;
-            }
-        }
-        else
+        if (CanMoveDown(currentTetromino))
         {
             lockDelayTimer = 0f;
+            return;
+        }
+
+        lockDelayTimer += Time.deltaTime;
+        //Debug.Log("Move reset count: " + moveResetCount);
+
+        if (lockDelayTimer >= lockDelay || moveResetCount > MOVE_RESET_LIMIT)
+        {
+            LockCurrentPiece();
         }
     }
 
@@ -446,7 +448,6 @@ public class GameManager : MonoBehaviour
         queue.RemoveAt(0); //shift the queue up
         shadowQueue.RemoveAt(0);
         SpawnTetromino();
-        enableHold = true;
     }
 
     #endregion
