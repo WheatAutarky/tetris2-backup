@@ -62,6 +62,11 @@ public class GameManager : MonoBehaviour
         public Vector3 MoveVector;
     }
 
+    private enum Tetromino
+    {
+        
+    }
+
     private DirectionState left = new DirectionState{MoveVector = Vector3.left};
     private DirectionState right = new DirectionState{MoveVector = Vector3.right};
 
@@ -279,7 +284,7 @@ public class GameManager : MonoBehaviour
         if (!(frameInput.HoldPressed && enableHold))
             return;
 
-        if (holdPiece == null) //changed to be a separate gameobject
+        if (holdPiece == null)
         {
             holdPiece = queue[0];
             holdPieceShadow = shadowQueue[0];
