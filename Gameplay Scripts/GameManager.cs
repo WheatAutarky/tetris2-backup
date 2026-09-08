@@ -1,27 +1,23 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 using UnityEngine.UIElements;
 //using UnityEngine.InputSystem;
 
+/* Main Gameplay file for wiring logic together */
 public class GameManager : MonoBehaviour
 {
     #region DEFINITIONS
 
-    [Header("Imports")]
+    /* Imports */
     private GridScript gridScript;
     private InputHandler input = new InputHandler(); //InputHandler is not a MonoBehaviour class (attached to a gameobject as a component), so doesn't need a GetComponent call
     private RotationSystem rotationSystem;
     private MovementSystem movementSystem ;
+    private LockDelaySystem lockDelaySystem;
 
-    [Header("Constants")]
+    /* Constants */
 
-    private float lockDelay = 2f; //starts counting the timer after the next gravity trigger, so is in practice gravity + lockDelay
-    private float lockDelayTimer = 0f;
-
-    private const int MOVE_RESET_LIMIT = 15;
-    
     private const int BAG_SIZE = 7;
     private const int MIN_QUEUE_SIZE = 14; 
     private const int LINES_TO_CLEAR = 40;
@@ -33,8 +29,6 @@ public class GameManager : MonoBehaviour
     private static readonly Vector3 DEFAULT_SPAWN = new Vector3(4.0f,21f,0);
     private static readonly Vector3 HOLD_PIECE_COORDS = new Vector3(-3,17,0);
     private static readonly Vector3 HOLD_SHADOW_PIECE_COORDS = new Vector3(-50,17,0);
-
-    [Header("Handling Values/Timers")]
     
 
     private bool enableHold = true;
@@ -66,6 +60,7 @@ public class GameManager : MonoBehaviour
         gridScript = GetComponent<GridScript>(); //any other classes that need GridScript will come after this line
         rotationSystem = new RotationSystem(gridScript);
         movementSystem = new MovementSystem(gridScript);
+        lockDelaySystem = new LockDelaySystem(gridScript);
     }
 
     void Start()
@@ -81,11 +76,11 @@ public class GameManager : MonoBehaviour
             Debug.Log("GAME!"); //works
         }
 
-        if (LockDelayCheck(currentTetromino)) { LockCurrentPiece(); }
+        if (lockDelaySystem.ShouldLock(currentTetromino)) { LockCurrentPiece(); }
 
-        if (movementSystem.ShouldApplyGravity())
+        if (movementSystem.ShouldApplyGravity()) //can use this if check so that gamemanager knows if a gravity drop happened
         {
-            movementSystem.MoveTetromino(Vector3.down, currentTetromino); //can use this if check so that gamemanager knows if a gravity drop happened
+            movementSystem.MoveTetromino(Vector3.down, currentTetromino); 
         }
 
         HandleInput(input.GetSnapshot());
@@ -98,19 +93,17 @@ public class GameManager : MonoBehaviour
     private void HandleInput(InputSnapshot frameInput) 
     {
         HandlePause(frameInput);
-        movementSystem.HandleMovement(frameInput, currentTetromino); //replace with the piecequeue currentTetromino field when that is done
+        bool rotated = rotationSystem.HandleRotation(frameInput, currentTetromino);
+        bool moved = movementSystem.HandleMovement(frameInput, currentTetromino); //replace currentTetromino with the piecequeue currentTetromino field when that is done
 
-        if (rotationSystem.HandleRotation(frameInput, currentTetromino) && !gridScript.CanMoveDown(currentTetromino))
-        {
-            lockDelayTimer = 0f;
-            movementSystem.moveResetCount++;
-        }
+        if ((moved || rotated) && !gridScript.CanMoveDown(currentTetromino))
+            lockDelaySystem.RegisterMoveReset();
+        
         movementSystem.HandleSoftDrop(frameInput);
         
         if (movementSystem.HandleHardDrop(frameInput, currentTetromino))
-        {
             LockCurrentPiece();
-        }
+        
         HandleHold(frameInput); //keep this function in this file too as it modifies currentTetromino and currentShadowTetromino, which are only defined in this file
     }
 
@@ -121,6 +114,10 @@ public class GameManager : MonoBehaviour
             //create a pause menu game object with menus, and freeze the pieces and game controls
         }
     }
+
+    #endregion
+    
+    #region PIECEHANDLING
 
     private void HandleHold(InputSnapshot frameInput)
     {
@@ -165,9 +162,8 @@ public class GameManager : MonoBehaviour
 
         /* Check for game over */
         if (!gridScript.IsValidPosition(currentTetromino.transform))
-        {
-            Time.timeScale = 0f;
-        }
+            GameOver();
+        
         enableHold = false;
     }
 
@@ -181,9 +177,7 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    #endregion
     
-    #region PIECEHANDLING
     private void SpawnTetromino()
     {
         /* Top up queue if there isn't two full bags ready */
@@ -208,30 +202,11 @@ public class GameManager : MonoBehaviour
         /* Temporary game over measure, doesn't actually end the game as you can still hard drop. */
         if (!gridScript.IsValidPosition(currentTetromino.transform))
         {
-            Time.timeScale = 0f;
+            GameOver();
         }
 
-        lockDelayTimer = 0f;
-        movementSystem.moveResetCount = 0;
+        lockDelaySystem.ClearMoveResets();
         enableHold = true;
-    }
-
-    private bool LockDelayCheck(GameObject currentPiece)
-    {
-        if (gridScript.CanMoveDown(currentPiece))
-        {
-            lockDelayTimer = 0f;
-            return false;
-        }
-
-        lockDelayTimer += Time.deltaTime;
-        //Debug.Log("Move reset count: " + movementSystem.moveResetCount);
-
-        if (lockDelayTimer >= lockDelay || movementSystem.moveResetCount > MOVE_RESET_LIMIT)
-        {
-            return true;
-        }
-        return false;
     }
 
     /* Call this function to shuffle the bag */
@@ -280,4 +255,9 @@ public class GameManager : MonoBehaviour
     }
 
     #endregion
+
+    private void GameOver()
+    {
+        Time.timeScale = 0f;
+    }
 }
