@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.UIElements;
-using UnityEngine.InputSystem;
+//using UnityEngine.InputSystem;
 
 public class GameManager : MonoBehaviour
 {
@@ -12,6 +12,7 @@ public class GameManager : MonoBehaviour
     [Header("Imports")]
     private GridScript gridScript;
     private InputHandler input = new InputHandler(); //InputHandler is not a MonoBehaviour class (attached to a gameobject as a component), so doesn't need a GetComponent call
+    private RotationSystem rotationSystem;
 
     [Header("Constants")]
 
@@ -80,7 +81,8 @@ public class GameManager : MonoBehaviour
     #region RUNTIME
     void Awake()
     {
-        gridScript = GetComponent<GridScript>();
+        gridScript = GetComponent<GridScript>(); //any other classes that need GridScript will come after this line
+        rotationSystem = new RotationSystem(gridScript);
     }
 
     void Start()
@@ -120,8 +122,14 @@ public class GameManager : MonoBehaviour
     {
         HandlePause(frameInput);
         HandleMovement(frameInput, currentTetromino); //replace with the piecequeue currentTetromino field when that is done
-        HandleRotation(frameInput, currentTetromino);
+
+        if (rotationSystem.HandleRotation(frameInput, currentTetromino) && !CanMoveDown(currentTetromino))
+        {
+            lockDelayTimer = 0f;
+            moveResetCount++;
+        }
         HandleSoftDrop(frameInput);
+        
         if (HandleHardDrop(frameInput, currentTetromino))
         {
             LockCurrentPiece();
@@ -202,74 +210,7 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    private void HandleRotation(InputSnapshot frameInput, GameObject currentPiece)
-    {
-        int direction;
-        if (!frameInput.ClockwisePressed && !frameInput.CounterClockwisePressed && !frameInput.InvertPressed)
-            return;
-        
-        if (currentPiece.name.Contains("O"))
-            return;
-
-        if (frameInput.ClockwisePressed) { direction = -90; }
-        else if (frameInput.CounterClockwisePressed) { direction = 90; }
-        else { direction = 180; }
-
-        Vector3Int[] kicks = GetWallKickTests(currentPiece, frameInput); // needs to read the intended rotation before applying it
-        currentPiece.transform.Rotate(0, 0, direction);
-        ApplyWallKickTests(kicks, currentPiece);
-
-        if (!gridScript.IsValidPosition(currentPiece.transform))
-        {
-            currentPiece.transform.Rotate(0, 0, -direction);
-        }
-        else if(!CanMoveDown(currentPiece))
-        {
-            lockDelayTimer = 0f;
-            moveResetCount++;
-        }
-    }
-
-    private enum RotationState
-    {
-        Spawn = 0,
-        Right = 1,
-        Inverted = 2,
-        Left = 3
-    }
-
-    private Vector3Int[] GetWallKickTests(GameObject tetromino, InputSnapshot frameInput)
-    {
-        float currentZ = Mathf.Round(tetromino.transform.eulerAngles.z);
-        currentZ = ((currentZ % 360) + 360) % 360; // normalize just in case
-        var kickList = tetromino.name == "I(Clone)" ? WallKickTables.WallKicksI : WallKickTables.WallKicksJLOSTZ;
-
-        if (currentZ == 0   && frameInput.ClockwisePressed)        return kickList[0]; // 0->R
-        if (currentZ == 270 && frameInput.CounterClockwisePressed) return kickList[1]; // R->0
-        if (currentZ == 270 && frameInput.ClockwisePressed)        return kickList[2]; // R->2
-        if (currentZ == 180 && frameInput.CounterClockwisePressed) return kickList[3]; // 2->R
-        if (currentZ == 180 && frameInput.ClockwisePressed)        return kickList[4]; // 2->L
-        if (currentZ == 90  && frameInput.CounterClockwisePressed) return kickList[5]; // L->2
-        if (currentZ == 90  && frameInput.ClockwisePressed)        return kickList[6]; // L->0
-        if (currentZ == 0   && frameInput.CounterClockwisePressed) return kickList[7]; // 0->L
-
-        return kickList[7]; // fallback (also hit by the 180°/invert case, since it's neither CW nor CCW — worth a closer look later)
-    }
-
-    private void ApplyWallKickTests(Vector3Int[] kickList, GameObject currentPiece)
-    {
-        Vector3 shiftCoords;
-        for (int i = 0; i < kickList.Length; i++)
-        {
-            shiftCoords = kickList[i];
-
-            currentPiece.transform.position += shiftCoords;
-            if (gridScript.IsValidPosition(currentPiece.transform))
-                return;
-
-            currentPiece.transform.position -= shiftCoords;
-        }
-    }
+    
 
     private void HandleSoftDrop(InputSnapshot frameInput)
     {
