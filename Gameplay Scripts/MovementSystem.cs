@@ -16,8 +16,7 @@ public class MovementSystem
     private float ARR = 0.005f; //NES Tetris: 0.1f ---- My Settings: 0.005f
     private float baseMovementFrequency = 0.8f;
     private float softDropFrequency = 0.05f;
-    private float movementFrequency = baseMovementFrequency;
-    public int moveResetCount = 0;
+    private float movementFrequency = 0.8f;
     private float passedTime = 0;
     private const int BOARD_WIDTH = 10;
 
@@ -32,21 +31,12 @@ public class MovementSystem
     private DirectionState right = new DirectionState{MoveVector = Vector3.right};
 
 
-    /* Moves piece upon calling in a given direction */
-    public void MoveTetromino(Vector3 direction, GameObject currentPiece)
-    {
-        currentPiece.transform.position += direction;
-        if (!gridScript.IsValidPosition(currentPiece.transform))
-        {
-            currentPiece.transform.position -= direction;
-        }
-    }
 
 
-    public void HandleMovement(InputSnapshot frameInput, GameObject currentPiece)
+    public bool HandleMovement(InputSnapshot frameInput, GameObject currentPiece)
     {
-        TryInitialMove(frameInput.LeftPressed, Direction.Left, left, currentPiece);
-        TryInitialMove(frameInput.RightPressed, Direction.Right, right, currentPiece);
+        bool movedLeft = TryInitialMove(frameInput.LeftPressed, Direction.Left, left, currentPiece);
+        bool movedRight = TryInitialMove(frameInput.RightPressed, Direction.Right, right, currentPiece);
 
         UpdateActiveDirection(frameInput);
 
@@ -58,20 +48,32 @@ public class MovementSystem
 
         else if (activeDirection == Direction.Right)
             HandleARR(right, frameInput.RightHeld, currentPiece);
+            
+        return movedLeft || movedRight;
     }
 
-    private void TryInitialMove(bool pressed, Direction direction, DirectionState state, GameObject currentPiece)
+    private bool TryInitialMove(bool pressed, Direction direction, DirectionState state, GameObject currentPiece)
     {
         if (!pressed)
-            return;
+            return false;
         
-        MoveTetromino(state.MoveVector, currentPiece);
+        bool moved = MoveTetromino(state.MoveVector, currentPiece);
         state.dasTimer = DAS;
         state.arrTimer = 0f;
         activeDirection = direction;
 
-        if (!gridScript.CanMoveDown(currentPiece))
-            moveResetCount++;
+        return moved;
+    }
+
+    public bool MoveTetromino(Vector3 direction, GameObject currentPiece)
+    {
+        currentPiece.transform.position += direction;
+        if (!gridScript.IsValidPosition(currentPiece.transform))
+        {
+            currentPiece.transform.position -= direction;
+            return false;
+        }
+        return true;
     }
 
     private void UpdateActiveDirection(InputSnapshot frameInput)
