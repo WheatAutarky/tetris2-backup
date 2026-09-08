@@ -1,0 +1,76 @@
+using UnityEngine;
+
+public class RotationSystem
+{
+    private readonly GridScript gridScript;
+
+    public RotationSystem(GridScript gridScript) //needed to disambiguate between the two GridScript classes in the project
+    {
+        this.gridScript = gridScript;
+    }
+    public bool HandleRotation(InputSnapshot frameInput, GameObject currentPiece)
+    {
+        int direction;
+        if (!frameInput.ClockwisePressed && !frameInput.CounterClockwisePressed && !frameInput.InvertPressed)
+            return false;
+        
+        if (currentPiece.name.Contains("O"))
+            return false;
+
+        if (frameInput.ClockwisePressed) { direction = -90; }
+        else if (frameInput.CounterClockwisePressed) { direction = 90; }
+        else { direction = 180; }
+
+        Vector3Int[] kicks = GetWallKickTests(currentPiece, frameInput); // needs to read the intended rotation before applying it
+        currentPiece.transform.Rotate(0, 0, direction);
+        ApplyWallKickTests(kicks, currentPiece);
+
+        if (!gridScript.IsValidPosition(currentPiece.transform))
+        {
+            currentPiece.transform.Rotate(0, 0, -direction);
+            return false;
+        }
+        return true;
+    }
+
+    private enum RotationState
+    {
+        Spawn = 0,
+        Right = 1,
+        Inverted = 2,
+        Left = 3
+    }
+
+    private Vector3Int[] GetWallKickTests(GameObject tetromino, InputSnapshot frameInput)
+    {
+        float currentZ = Mathf.Round(tetromino.transform.eulerAngles.z);
+        currentZ = ((currentZ % 360) + 360) % 360; // normalize just in case
+        var kickList = tetromino.name == "I(Clone)" ? WallKickTables.WallKicksI : WallKickTables.WallKicksJLOSTZ;
+
+        if (currentZ == 0   && frameInput.ClockwisePressed)        return kickList[0]; // 0->R
+        if (currentZ == 270 && frameInput.CounterClockwisePressed) return kickList[1]; // R->0
+        if (currentZ == 270 && frameInput.ClockwisePressed)        return kickList[2]; // R->2
+        if (currentZ == 180 && frameInput.CounterClockwisePressed) return kickList[3]; // 2->R
+        if (currentZ == 180 && frameInput.ClockwisePressed)        return kickList[4]; // 2->L
+        if (currentZ == 90  && frameInput.CounterClockwisePressed) return kickList[5]; // L->2
+        if (currentZ == 90  && frameInput.ClockwisePressed)        return kickList[6]; // L->0
+        if (currentZ == 0   && frameInput.CounterClockwisePressed) return kickList[7]; // 0->L
+
+        return kickList[7];
+    }
+
+    private void ApplyWallKickTests(Vector3Int[] kickList, GameObject currentPiece)
+    {
+        Vector3 shiftCoords;
+        for (int i = 0; i < kickList.Length; i++)
+        {
+            shiftCoords = kickList[i];
+
+            currentPiece.transform.position += shiftCoords;
+            if (gridScript.IsValidPosition(currentPiece.transform))
+                return;
+
+            currentPiece.transform.position -= shiftCoords;
+        }
+    }
+}
