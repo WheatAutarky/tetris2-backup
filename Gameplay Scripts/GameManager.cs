@@ -13,18 +13,15 @@ public class GameManager : MonoBehaviour
     private GridScript gridScript;
     private InputHandler input = new InputHandler(); //InputHandler is not a MonoBehaviour class (attached to a gameobject as a component), so doesn't need a GetComponent call
     private RotationSystem rotationSystem;
+    private MovementSystem movementSystem ;
 
     [Header("Constants")]
-
-    [SerializeField] private float DAS = 0.1f; //NES Tetris: 0.27f ---- My Settings: 0.1f
-    [SerializeField] private float ARR = 0.005f; //NES Tetris: 0.1f ---- My Settings: 0.005f
 
     private float lockDelay = 2f; //starts counting the timer after the next gravity trigger, so is in practice gravity + lockDelay
     private float lockDelayTimer = 0f;
 
-    private int moveResetCount = 0;
     private const int MOVE_RESET_LIMIT = 15;
-    private const int BOARD_WIDTH = 10;
+    
     private const int BAG_SIZE = 7;
     private const int MIN_QUEUE_SIZE = 14; 
     private const int LINES_TO_CLEAR = 40;
@@ -39,19 +36,14 @@ public class GameManager : MonoBehaviour
 
     [Header("Handling Values/Timers")]
     
-    [SerializeField] private float baseMovementFrequency = 0.8f;
-    [SerializeField] private float softDropFrequency = 0.05f;
-    private float movementFrequency;
+
     private bool enableHold = true;
-    private float passedTime = 0;
-    
     private GameObject currentTetromino; //only written by spawntetromino and handlehold
     private GameObject currentShadowTetromino;
     [SerializeField] private GameObject[] Tetrominos;
     [SerializeField] private GameObject[] ShadowTetrominos;
 
-    private enum Direction { None, Left, Right }
-    private Direction activeDirection = Direction.None;
+
     private List<GameObject> queue = new List<GameObject>();
     private List<GameObject> shadowQueue = new List<GameObject>();
     private int[] generatedBag = new int[BAG_SIZE];
@@ -61,20 +53,10 @@ public class GameManager : MonoBehaviour
     public UIDocument uiDocument;
     private int totalLinesCleared;
 
-    private class DirectionState //can probably use this to splinter off to an own file for PieceHandler
-    {
-        public float dasTimer;
-        public float arrTimer;
-        public Vector3 MoveVector;
-    }
-
     private enum Tetromino
     {
         I, O, T, S, Z, J, L
     }
-
-    private DirectionState left = new DirectionState{MoveVector = Vector3.left};
-    private DirectionState right = new DirectionState{MoveVector = Vector3.right};
 
     #endregion
 
@@ -83,6 +65,7 @@ public class GameManager : MonoBehaviour
     {
         gridScript = GetComponent<GridScript>(); //any other classes that need GridScript will come after this line
         rotationSystem = new RotationSystem(gridScript);
+        movementSystem = new MovementSystem(gridScript);
     }
 
     void Start()
@@ -98,17 +81,11 @@ public class GameManager : MonoBehaviour
             Debug.Log("GAME!"); //works
         }
 
-        if (LockDelayCheck(currentTetromino))
-        {
-            LockCurrentPiece();
-        }
+        if (LockDelayCheck(currentTetromino)) { LockCurrentPiece(); }
 
-        /* Gravity */
-        passedTime += Time.deltaTime;
-        if (passedTime >= movementFrequency)
+        if (movementSystem.ShouldApplyGravity())
         {
-            passedTime -= movementFrequency;
-            MoveTetromino(Vector3.down, currentTetromino);
+            movementSystem.MoveTetromino(Vector3.down, currentTetromino); //can use this if check so that gamemanager knows if a gravity drop happened
         }
 
         HandleInput(input.GetSnapshot());
@@ -118,19 +95,19 @@ public class GameManager : MonoBehaviour
     #endregion
 
     #region INPUTHANDLING
-    private void HandleInput(InputSnapshot frameInput) //keep this function here, import individual functions
+    private void HandleInput(InputSnapshot frameInput) 
     {
         HandlePause(frameInput);
-        HandleMovement(frameInput, currentTetromino); //replace with the piecequeue currentTetromino field when that is done
+        movementSystem.HandleMovement(frameInput, currentTetromino); //replace with the piecequeue currentTetromino field when that is done
 
-        if (rotationSystem.HandleRotation(frameInput, currentTetromino) && !CanMoveDown(currentTetromino))
+        if (rotationSystem.HandleRotation(frameInput, currentTetromino) && !gridScript.CanMoveDown(currentTetromino))
         {
             lockDelayTimer = 0f;
-            moveResetCount++;
+            movementSystem.moveResetCount++;
         }
-        HandleSoftDrop(frameInput);
+        movementSystem.HandleSoftDrop(frameInput);
         
-        if (HandleHardDrop(frameInput, currentTetromino))
+        if (movementSystem.HandleHardDrop(frameInput, currentTetromino))
         {
             LockCurrentPiece();
         }
@@ -143,91 +120,6 @@ public class GameManager : MonoBehaviour
         {
             //create a pause menu game object with menus, and freeze the pieces and game controls
         }
-    }
-
-    private void HandleMovement(InputSnapshot frameInput, GameObject currentPiece)
-    {
-        TryInitialMove(frameInput.LeftPressed, Direction.Left, left, currentPiece);
-        TryInitialMove(frameInput.RightPressed, Direction.Right, right, currentPiece);
-
-        UpdateActiveDirection(frameInput);
-
-        HandleDAS(left, frameInput.LeftHeld);
-        HandleDAS(right,frameInput.RightHeld);
-
-        if (activeDirection == Direction.Left)
-            HandleARR(left, frameInput.LeftHeld, currentPiece);
-
-        else if (activeDirection == Direction.Right)
-            HandleARR(right, frameInput.RightHeld, currentPiece);
-    }
-
-    private void TryInitialMove(bool pressed, Direction direction, DirectionState state, GameObject currentPiece)
-    {
-        if (!pressed)
-            return;
-        
-        MoveTetromino(state.MoveVector, currentPiece);
-        state.dasTimer = DAS;
-        state.arrTimer = 0f;
-        activeDirection = direction;
-
-        if (!CanMoveDown(currentPiece))
-            moveResetCount++;
-    }
-
-    private void UpdateActiveDirection(InputSnapshot frameInput)
-    {
-        if (!frameInput.LeftHeld && activeDirection == Direction.Left && frameInput.RightHeld)
-            activeDirection = Direction.Right;
-    
-        else if (!frameInput.RightHeld && activeDirection == Direction.Right && frameInput.LeftHeld)
-            activeDirection = Direction.Left;
-        
-        else if (!frameInput.LeftHeld && !frameInput.RightHeld)
-            activeDirection = Direction.None;
-    }
-
-    private void HandleDAS(DirectionState state, bool held)
-    {
-        if (held) 
-            state.dasTimer -= Time.deltaTime;
-    }
-
-    private void HandleARR (DirectionState state, bool held, GameObject currentPiece)
-    {
-        if (!held || state.dasTimer > 0f) 
-            return;
-        
-        state.arrTimer -= Time.deltaTime;
-        int moves = 0;
-
-        while (state.arrTimer <= 0f && moves < BOARD_WIDTH)
-        {
-            MoveTetromino(state.MoveVector, currentPiece);
-            state.arrTimer += ARR;
-            moves++;
-        }
-    }
-
-    
-
-    private void HandleSoftDrop(InputSnapshot frameInput)
-    {
-        if (frameInput.SoftDropPressed) { passedTime = 0; }
-        movementFrequency = frameInput.SoftDropHeld ? softDropFrequency : baseMovementFrequency;
-    }
-
-    private bool HandleHardDrop(InputSnapshot frameInput, GameObject currentPiece)
-    {
-        if (!frameInput.HardDropPressed)
-            return false;
-  
-        while (CanMoveDown(currentPiece))
-        {
-            currentPiece.transform.position += Vector3.down;
-        }
-        return true;
     }
 
     private void HandleHold(InputSnapshot frameInput)
@@ -283,7 +175,7 @@ public class GameManager : MonoBehaviour
     {
         currentShadowTetromino.transform.position = currentPiece.transform.position;
         currentShadowTetromino.transform.rotation = currentPiece.transform.rotation;
-        while (CanMoveDown(currentShadowTetromino))
+        while (gridScript.CanMoveDown(currentShadowTetromino))
         {
             currentShadowTetromino.transform.position += Vector3.down;
         }
@@ -320,41 +212,22 @@ public class GameManager : MonoBehaviour
         }
 
         lockDelayTimer = 0f;
-        moveResetCount = 0;
+        movementSystem.moveResetCount = 0;
         enableHold = true;
-    }
-
-
-    /* Moves piece upon calling in a given direction */
-    private void MoveTetromino(Vector3 direction, GameObject currentPiece)
-    {
-        currentPiece.transform.position += direction;
-        if (!gridScript.IsValidPosition(currentPiece.transform))
-        {
-            currentPiece.transform.position -= direction;
-        }
-    }
-
-    private bool CanMoveDown(GameObject currentPiece)
-    {
-        currentPiece.transform.position += Vector3.down;
-        bool canMove = gridScript.IsValidPosition(currentPiece.transform);
-        currentPiece.transform.position -= Vector3.down;
-        return canMove;
     }
 
     private bool LockDelayCheck(GameObject currentPiece)
     {
-        if (CanMoveDown(currentPiece))
+        if (gridScript.CanMoveDown(currentPiece))
         {
             lockDelayTimer = 0f;
             return false;
         }
 
         lockDelayTimer += Time.deltaTime;
-        //Debug.Log("Move reset count: " + moveResetCount);
+        //Debug.Log("Move reset count: " + movementSystem.moveResetCount);
 
-        if (lockDelayTimer >= lockDelay || moveResetCount > MOVE_RESET_LIMIT)
+        if (lockDelayTimer >= lockDelay || movementSystem.moveResetCount > MOVE_RESET_LIMIT)
         {
             return true;
         }
