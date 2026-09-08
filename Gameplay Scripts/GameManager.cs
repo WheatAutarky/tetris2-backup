@@ -25,11 +25,16 @@ public class GameManager : MonoBehaviour
     private const int MOVE_RESET_LIMIT = 15;
     private const int BOARD_WIDTH = 10;
     private const int BAG_SIZE = 7;
+    private const int MIN_QUEUE_SIZE = 14; 
+    private const int LINES_TO_CLEAR = 40;
 
-    private Vector3 NEW_PIECE_SPAWN  = new Vector3(12f, 40f, 0);
+    /* Coordinates */
+    private static readonly Vector3 NEW_PIECE_SPAWN = new Vector3(12f, 40f, 0);
     private static readonly Vector3 I_PIECE_SPAWN = new Vector3(4.5f, 20.5f, 0);
     private static readonly Vector3 O_PIECE_SPAWN = new Vector3(4.5f, 21.5f, 0);
     private static readonly Vector3 DEFAULT_SPAWN = new Vector3(4.0f,21f,0);
+    private static readonly Vector3 HOLD_PIECE_COORDS = new Vector3(-3,17,0);
+    private static readonly Vector3 HOLD_SHADOW_PIECE_COORDS = new Vector3(-50,17,0);
 
     [Header("Handling Values/Timers")]
     
@@ -64,7 +69,7 @@ public class GameManager : MonoBehaviour
 
     private enum Tetromino
     {
-        
+        I, O, T, S, Z, J, L
     }
 
     private DirectionState left = new DirectionState{MoveVector = Vector3.left};
@@ -86,7 +91,7 @@ public class GameManager : MonoBehaviour
 
     void Update()
     {
-        if (totalLinesCleared >= 40)
+        if (totalLinesCleared >= LINES_TO_CLEAR)
         {
             Debug.Log("GAME!"); //works
         }
@@ -104,9 +109,9 @@ public class GameManager : MonoBehaviour
             MoveTetromino(Vector3.down, currentTetromino);
         }
 
-        HandleInput(input.GetSnapshot(), currentTetromino);
+        HandleInput(input.GetSnapshot());
         HandleShadowPiece(currentTetromino);
-        totalLinesClearedText.text = "Lines: " + totalLinesCleared + " / 40";
+        totalLinesClearedText.text = "Lines: " + totalLinesCleared + " / " + LINES_TO_CLEAR;
     }
     #endregion
 
@@ -293,8 +298,8 @@ public class GameManager : MonoBehaviour
         {
             holdPiece = queue[0];
             holdPieceShadow = shadowQueue[0];
-            holdPieceShadow.transform.position = new Vector3(-50,17,0);
-            holdPiece.transform.position = new Vector3(-3, 17, 0);
+            holdPieceShadow.transform.position = HOLD_SHADOW_PIECE_COORDS;
+            holdPiece.transform.position = HOLD_PIECE_COORDS;
             holdPiece.transform.rotation = Quaternion.identity; //reset rotation when putting into the hold slot
             queue.RemoveAt(0); //shift the queue up
 
@@ -315,8 +320,8 @@ public class GameManager : MonoBehaviour
         shadowQueue[0] = holdPieceShadow;
         holdPieceShadow = switchPieceShadow;
 
-        holdPieceShadow.transform.position = new Vector3(-50,17,0);
-        holdPiece.transform.position = new Vector3(-3, 17, 0);
+        holdPieceShadow.transform.position = HOLD_SHADOW_PIECE_COORDS;
+        holdPiece.transform.position = HOLD_PIECE_COORDS;
         holdPiece.transform.rotation = Quaternion.identity;
 
         currentTetromino = queue[0];
@@ -349,7 +354,7 @@ public class GameManager : MonoBehaviour
     private void SpawnTetromino()
     {
         /* Top up queue if there isn't two full bags ready */
-        if (queue.Count < 14)
+        if (queue.Count < MIN_QUEUE_SIZE)
         {
             GenerateBag();
             foreach (int i in generatedBag)
