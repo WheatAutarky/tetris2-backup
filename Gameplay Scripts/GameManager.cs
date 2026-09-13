@@ -165,6 +165,7 @@ public class GameManager : MonoBehaviour
             GameOver();
         
         enableHold = false;
+        lockDelaySystem.ClearMoveResets();
     }
 
     void HandleShadowPiece(GameObject currentPiece)
