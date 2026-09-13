@@ -6,12 +6,14 @@ public class GridScript : MonoBehaviour
     public Transform[,] grid;
     public int width,height;
 
-    void Awake()
+    void Start()
     {
         grid = new Transform[width,height];
     }
-    void Start()
+
+    void Update()
     {
+
     }
 
     public static Vector2 Round(Vector2 v)
@@ -75,14 +77,6 @@ public class GridScript : MonoBehaviour
             }
         }
         return true;
-    }
-
-    public bool CanMoveDown(GameObject currentPiece)
-    {
-        currentPiece.transform.position += Vector3.down;
-        bool canMove = IsValidPosition(currentPiece.transform);
-        currentPiece.transform.position -= Vector3.down;
-        return canMove;
     }
 
     public int CheckForLines()
