@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -15,21 +14,9 @@ public class GameManager : MonoBehaviour
     private RotationSystem rotationSystem;
     private MovementSystem movementSystem ;
     private LockDelaySystem lockDelaySystem;
+    private PieceQueue pieceQueue;
 
-    /* Constants */
-
-    private const int BAG_SIZE = 7;
-    private const int MIN_QUEUE_SIZE = 14; 
     private const int LINES_TO_CLEAR = 40;
-
-    /* Coordinates */
-    private static readonly Vector3 NEW_PIECE_SPAWN = new Vector3(12f, 40f, 0);
-    private static readonly Vector3 I_PIECE_SPAWN = new Vector3(4.5f, 20.5f, 0);
-    private static readonly Vector3 O_PIECE_SPAWN = new Vector3(4.5f, 21.5f, 0);
-    private static readonly Vector3 DEFAULT_SPAWN = new Vector3(4.0f,21f,0);
-    private static readonly Vector3 HOLD_PIECE_COORDS = new Vector3(-3,17,0);
-    private static readonly Vector3 HOLD_SHADOW_PIECE_COORDS = new Vector3(-50,17,0);
-    
 
     private bool enableHold = true;
     private GameObject currentTetromino; //only written by spawntetromino and handlehold
@@ -37,12 +24,6 @@ public class GameManager : MonoBehaviour
     [SerializeField] private GameObject[] Tetrominos;
     [SerializeField] private GameObject[] ShadowTetrominos;
 
-
-    private List<GameObject> queue = new List<GameObject>();
-    private List<GameObject> shadowQueue = new List<GameObject>();
-    private int[] generatedBag = new int[BAG_SIZE];
-    private GameObject holdPiece;
-    private GameObject holdPieceShadow;
     private Label totalLinesClearedText;
     public UIDocument uiDocument;
     private int totalLinesCleared;
@@ -61,6 +42,7 @@ public class GameManager : MonoBehaviour
         rotationSystem = new RotationSystem(gridScript);
         movementSystem = new MovementSystem(gridScript);
         lockDelaySystem = new LockDelaySystem(gridScript);
+        pieceQueue = new PieceQueue(Tetrominos, ShadowTetrominos);
     }
 
     void Start()
@@ -121,49 +103,10 @@ public class GameManager : MonoBehaviour
 
     private void HandleHold(InputSnapshot frameInput)
     {
-        if (!(frameInput.HoldPressed && enableHold))
+        if (!frameInput.HoldPressed || !enableHold)
             return;
 
-        if (holdPiece == null)
-        {
-            holdPiece = queue[0];
-            holdPieceShadow = shadowQueue[0];
-            holdPieceShadow.transform.position = HOLD_SHADOW_PIECE_COORDS;
-            holdPiece.transform.position = HOLD_PIECE_COORDS;
-            holdPiece.transform.rotation = Quaternion.identity; //reset rotation when putting into the hold slot
-            queue.RemoveAt(0); //shift the queue up
-
-            shadowQueue.RemoveAt(0);
-            SpawnTetromino();
-            enableHold = false;
-            return;
-        }
-
-        GameObject switchPiece;
-        GameObject switchPieceShadow;
-
-        switchPiece = queue[0];
-        queue[0] = holdPiece;
-        holdPiece = switchPiece;
-
-        switchPieceShadow = shadowQueue[0];
-        shadowQueue[0] = holdPieceShadow;
-        holdPieceShadow = switchPieceShadow;
-
-        holdPieceShadow.transform.position = HOLD_SHADOW_PIECE_COORDS;
-        holdPiece.transform.position = HOLD_PIECE_COORDS;
-        holdPiece.transform.rotation = Quaternion.identity;
-
-        currentTetromino = queue[0];
-        currentShadowTetromino = shadowQueue[0];
-
-        /* adjust spawn coordinates based on the piece, and place it on the grid */
-        currentTetromino.transform.position = GetSpawnLocation(currentTetromino);
-
-        /* Check for game over */
-        if (!gridScript.IsValidPosition(currentTetromino.transform))
-            GameOver();
-        
+        SetCurrentPiece(pieceQueue.SwapHold());
         enableHold = false;
     }
 
@@ -180,77 +123,27 @@ public class GameManager : MonoBehaviour
     
     private void SpawnTetromino()
     {
-        /* Top up queue if there isn't two full bags ready */
-        if (queue.Count < MIN_QUEUE_SIZE)
-        {
-            GenerateBag();
-            foreach (int i in generatedBag)
-            {
-                queue.Add(Instantiate(Tetrominos[i], NEW_PIECE_SPAWN, Quaternion.identity));
-                shadowQueue.Add(Instantiate(ShadowTetrominos[i], NEW_PIECE_SPAWN, Quaternion.identity));
-            }
-        } 
-
-        currentTetromino = queue[0];
-        currentShadowTetromino = shadowQueue[0];
-
-        UpdateQueueDisplay();
-
-        /* Adjust spawn positions dependent on the piece */
-        currentTetromino.transform.position = GetSpawnLocation(currentTetromino);
-
-        /* Temporary game over measure, doesn't actually end the game as you can still hard drop. */
-        if (!gridScript.IsValidPosition(currentTetromino.transform))
-        {
-            GameOver();
-        }
-
-        lockDelaySystem.ClearMoveResets();
+        SetCurrentPiece(pieceQueue.TakeNextPiece());
         enableHold = true;
     }
 
-    /* Call this function to shuffle the bag */
-    private void GenerateBag()
+    private void SetCurrentPiece(GameObject piece)
     {
-        // Fill the array
-        for (int i = 0; i < generatedBag.Length; i++)
-        {
-            generatedBag[i] = i;
-        }
+        currentTetromino = piece;
+        currentShadowTetromino = pieceQueue.currentShadow;
+        if (!gridScript.IsValidPosition(currentTetromino.transform))
+            GameOver();
 
-        // Fisher-Yates shuffle
-        for (int i = generatedBag.Length - 1; i > 0; i--)
-        {
-            int j = Random.Range(0, i + 1);
-            (generatedBag[i], generatedBag[j]) = (generatedBag[j], generatedBag[i]);
-        }
+        lockDelaySystem.ClearMoveResets();
     }
-    
-    private void UpdateQueueDisplay()
-    {
-        for (int i = 1; i <= 5; i++)
-        {
-            queue[i].transform.position = new Vector3(12, 22 - i*4, 0);
-        }
-    }
-
-    private Vector3 GetSpawnLocation(GameObject currentPiece) => currentPiece.name switch
-    {
-        "I(Clone)" => I_PIECE_SPAWN,
-        "O(Clone)" => O_PIECE_SPAWN,
-        _ => DEFAULT_SPAWN
-    };
 
     private void LockCurrentPiece()
     {
         gridScript.UpdateGrid(currentTetromino.transform);
         int linesCleared = gridScript.CheckForLines();
-
         totalLinesCleared += linesCleared; //40 lines as the goal
 
-        Destroy(currentShadowTetromino.gameObject);
-        queue.RemoveAt(0); //shift the queue up
-        shadowQueue.RemoveAt(0);
+        pieceQueue.PopQueue();
         SpawnTetromino();
     }
 
