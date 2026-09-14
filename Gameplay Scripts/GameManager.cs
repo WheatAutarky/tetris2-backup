@@ -26,12 +26,10 @@ public class GameManager : MonoBehaviour
 
     private Label totalLinesClearedText;
     public UIDocument uiDocument;
+    private GameState gameState = GameState.Playing;
     private int totalLinesCleared;
 
-    private enum Tetromino
-    {
-        I, O, T, S, Z, J, L
-    }
+    private enum GameState {Playing, Paused, GameOverSuccess, GameOverFailure}
 
     #endregion
 
@@ -53,8 +51,11 @@ public class GameManager : MonoBehaviour
 
     void Update()
     {
+        CheckGameState();
+
         if (totalLinesCleared >= LINES_TO_CLEAR)
         {
+            gameState = GameState.GameOverSuccess;
             Debug.Log("GAME!"); //works
         }
 
@@ -74,7 +75,12 @@ public class GameManager : MonoBehaviour
     #region INPUTHANDLING
     private void HandleInput(InputSnapshot frameInput) 
     {
-        HandlePause(frameInput);
+        if (frameInput.PausePressed)
+        {
+            gameState = GameState.Paused;
+            return;
+        }
+
         bool rotated = rotationSystem.HandleRotation(frameInput, currentTetromino);
         bool moved = movementSystem.HandleMovement(frameInput, currentTetromino); //replace currentTetromino with the piecequeue currentTetromino field when that is done
 
@@ -149,8 +155,22 @@ public class GameManager : MonoBehaviour
 
     #endregion
 
-    private void GameOver()
+    private void EndGame()
     {
-        Time.timeScale = 0f;
+        
+    }
+
+    private void CheckGameState()
+    {
+        switch (gameState)
+        {
+            case GameState.Playing:
+                break;
+            case GameState.Paused:
+                HandlePause(input.GetSnapshot());
+                break;
+            default:
+                EndGame();
+        }
     }
 }
